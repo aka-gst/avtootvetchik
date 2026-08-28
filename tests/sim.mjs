@@ -19,7 +19,7 @@ import { buildFlowField } from '../src/ai.js';
 import { blocksMove } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
-import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, formFor } from '../src/daemons.js';
+import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
 
 const DT = 1 / 60;
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
@@ -300,14 +300,45 @@ function cast(world, stack, angle) {
 /* --- E4. Демоны: узоры и цена набора --- */
 {
   check('одна стихия — плевок', shapeOf(['fire']).id === 'spit');
-  check('две одинаковые — сгусток', shapeOf(['water', 'water']).id === 'bolt');
+  check('две одинаковые — сгусток', shapeOf(['water', 'water']).id === 'clot');
   check('две разные — выдох', shapeOf(['water', 'fire']).id === 'cone');
   check('три одинаковые — луч', shapeOf(['fire', 'fire', 'fire']).id === 'beam');
   check('края одинаковые — пробой', shapeOf(['fire', 'water', 'fire']).id === 'pierce');
   check('три разные — вспышка', shapeOf(['fire', 'water', 'wind']).id === 'nova');
   check('две и третья — залп, а не пустота', shapeOf(['fire', 'fire', 'water']).id === 'shard');
   check('форма несёт все свои стихии',
-    formFor(['fire', 'water', 'fire']).elements.sort().join() === 'fire,water');
+    spellOf(['fire', 'water', 'fire']).elements.sort().join() === 'fire,water');
+
+  /*
+   * Две оси. Ради них всё и затевалось, поэтому они закреплены числами, а
+   * не ощущением: состав решает вещество и не зависит от порядка, узор
+   * решает форму и не зависит от того, что за вещество в очереди.
+   */
+  check('состав решает вещество',
+    substanceOf(['water', 'wind']).name === 'СТУЖА'
+    && substanceOf(['fire', 'earth']).name === 'ЛАВА');
+  check('порядок на вещество не влияет',
+    substanceOf(['water', 'wind']).id === substanceOf(['wind', 'water']).id);
+  check('повтор стихии вещества не меняет',
+    substanceOf(['fire', 'fire', 'water']).id === substanceOf(['fire', 'water']).id);
+  check('одно вещество живёт во всех формах',
+    spellOf(['water', 'wind']).substance.id === spellOf(['water', 'wind', 'water']).substance.id
+    && spellOf(['water', 'wind']).form.id !== spellOf(['water', 'wind', 'water']).form.id);
+  check('смесь — третье, а не сумма двух',
+    !substanceOf(['fire', 'water']).traits.burn && !substanceOf(['fire', 'water']).traits.wet,
+    `пар: ${Object.keys(substanceOf(['fire', 'water']).traits).join(',')}`);
+
+  /* Вещество должно чувствоваться в полёте, иначе состав снова только цвет. */
+  const gust = spellOf(['wind']).form.speed;
+  const stone = spellOf(['earth']).form.speed;
+  check('ветер летит быстрее камня', gust > stone * 1.4,
+    `${Math.round(gust)} против ${Math.round(stone)}`);
+  check('земля ломает мебель сама по себе', spellOf(['earth']).form.breaks === true);
+
+  const book = allSubstances();
+  check('каждый состав назван и назван по-своему',
+    book.length === 25 && new Set(book.map((entry) => entry.name)).size === 25,
+    `${book.length} веществ`);
 
   const world = createWorld(CAMPAIGN[0]);
   const player = world.player;

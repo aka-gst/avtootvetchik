@@ -58,6 +58,8 @@ export const ENTITY = {
   CARRIER_FIRE: 7,
   CARRIER_WATER: 8,
   CARRIER_WIND: 9,
+  CARRIER_EARTH: 10,
+  CARRIER_BOLT: 11,
 };
 
 /* Экранный словарь для рисования уровней руками. */
@@ -79,6 +81,8 @@ const CHAR_ENTITY = {
   f: ENTITY.CARRIER_FIRE,
   w: ENTITY.CARRIER_WATER,
   v: ENTITY.CARRIER_WIND,
+  e: ENTITY.CARRIER_EARTH,
+  l: ENTITY.CARRIER_BOLT,
 };
 
 export function blocksMove(tile) {

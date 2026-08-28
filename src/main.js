@@ -14,7 +14,7 @@ import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
-import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, formFor, colourOf } from './daemons.js';
+import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 
 const $ = (id) => document.getElementById(id);
@@ -57,16 +57,25 @@ const ui = {
 };
 
 /*
- * Демоны набираются правой рукой: ← термал, ↑ лёд, → разряд. Цифровой ряд
- * оставлен дубликатом — кому-то привычнее он, а стоит это трёх строк.
+ * Стихии набираются правой рукой: четыре на стрелках, пятая — на слэше
+ * рядом с ними. Цифровой ряд оставлен дубликатом — кому-то привычнее он,
+ * а стоит это пяти строк.
+ *
+ * Сброс очереди уехал со стрелки вниз на Q и Backspace: стрелку забрала
+ * земля. Q — потому что левая рука на WASD и мизинец до неё дотягивается,
+ * не отпуская хода.
  */
 const CHARGE_KEYS = {
   ArrowLeft: 'fire',
   ArrowUp: 'water',
   ArrowRight: 'wind',
+  ArrowDown: 'earth',
+  Slash: 'bolt',
   Digit1: 'fire',
   Digit2: 'water',
   Digit3: 'wind',
+  Digit4: 'earth',
+  Digit5: 'bolt',
 };
 
 const SFX_BY_EVENT = {
@@ -229,7 +238,7 @@ function setToast(text, seconds = 2) {
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНА, БОЛЬШАЯ ЕГО ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНА: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР. ПРОБЕЛ ВЫПУСКАЕТ НАБРАННОЕ, ↓ СБРАСЫВАЕТ. ПРИЦЕЛ ВЕДЁТСЯ САМ. R — ЗАНОВО.';
+    : 'WASD — ИДТИ. СТИХИИ: ← ОГОНЬ ↑ ВОДА → ВЕТЕР ↓ ЗЕМЛЯ / МОЛНИЯ. ПРОБЕЛ ВЫПУСКАЕТ, Q СБРАСЫВАЕТ. СОСТАВ РЕШАЕТ, ЧТО ВЫЛЕТИТ, ПОРЯДОК — КАКОЙ ФОРМЫ. R — ЗАНОВО.';
 }
 
 
@@ -360,7 +369,7 @@ function buildIntent(raw) {
     attack: false,
     charge: null,
     /* Сброс набранного: время потрачено, но выпустить не туда — хуже. */
-    dump: input.tookKey('ArrowDown') || input.tookKey('Backspace'),
+    dump: input.tookKey('KeyQ') || input.tookKey('Backspace'),
   };
 
   /* Забираем все три нажатия, а не первое: иначе непрочитанное всплывёт кадром позже. */
@@ -422,7 +431,7 @@ function updateHud(force) {
   const player = world.player;
 
   const player2 = world.player;
-  const loaded = formFor(player2.stack);
+  const loaded = spellOf(player2.stack);
   const key = player2.stack.join('') + (player2.charging || '')
     + (player2.chargeLeft > 0 ? Math.round((1 - player2.chargeLeft / CHARGE_STEP) * 6) : '');
 
@@ -454,8 +463,14 @@ function updateHud(force) {
       ui.form.style.color = colourOf(player2.charging);
       ui.form.hidden = false;
     } else if (loaded) {
-      ui.form.textContent = loaded.form.name;
-      ui.form.style.color = '';
+      /*
+       * Две оси набора показываются врозь, потому что и решаются врозь:
+       * состав говорит, что вылетит, узор — какой формы. Игрок, видящий
+       * «СТУЖА · ВЫДОХ», понимает, что вторая половина зависит от порядка,
+       * а первая — нет.
+       */
+      ui.form.textContent = `${loaded.substance.name} · ${loaded.form.name}`;
+      ui.form.style.color = loaded.substance.colour;
       ui.form.hidden = false;
     } else {
       ui.form.hidden = true;
@@ -515,7 +530,7 @@ function drainEvents() {
     } else if (event.type === 'cleared') {
       setToast('ЭТАЖ ЧИСТ — К ВЫХОДУ', 3);
     } else if (event.type === 'dry') {
-      setToast('СНАЧАЛА НАБЕРИ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР', 1.6);
+      setToast('СНАЧАЛА НАБЕРИ: ← ОГОНЬ ↑ ВОДА → ВЕТЕР ↓ ЗЕМЛЯ / МОЛНИЯ', 1.8);
     } else if (event.type === 'exit') {
       clearScreen();
     }

@@ -45,7 +45,7 @@ export function createInput(surface) {
     /* Код клавиши, а не символ: на русской раскладке WASD остаётся WASD. */
     if (!event.repeat) pressed.add(event.code);
     keys.add(event.code);
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(event.code)) {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Slash'].includes(event.code)) {
       event.preventDefault();
     }
   });
@@ -165,6 +165,8 @@ export function createInput(surface) {
       fire: 'Digit1',
       water: 'Digit2',
       wind: 'Digit3',
+      earth: 'Digit4',
+      bolt: 'Digit5',
     };
 
     const press = (event) => {

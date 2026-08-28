@@ -294,6 +294,8 @@ html, body {
 .daemon-key[data-element="fire"] { border-color: #ff5a1f; color: #ff5a1f; }
 .daemon-key[data-element="water"] { border-color: #4de1ff; color: #4de1ff; }
 .daemon-key[data-element="wind"] { border-color: #76ff9f; color: #76ff9f; }
+.daemon-key[data-element="earth"] { border-color: #d08a3e; color: #d08a3e; }
+.daemon-key[data-element="bolt"] { border-color: #ffe14d; color: #ffe14d; }
 
 .mute {
   position: fixed;

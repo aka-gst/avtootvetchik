@@ -14,7 +14,7 @@
 
 import { TILE } from './level.js';
 import { TILE_SIZE, BODY, WEAPONS } from './world.js';
-import { colourOf, CHARGE_STEP } from './daemons.js';
+import { colourOf, CHARGE_STEP } from './magic.js';
 
 /*
  * Пол светлее стен, а не наоборот. Первый вариант палитры был собран

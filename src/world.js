@@ -15,7 +15,7 @@
 
 import { TILE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
-import { FORMS, formFor, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './daemons.js';
+import { spellOf, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './magic.js';
 
 export const TILE_SIZE = 32;
 
@@ -270,7 +270,7 @@ export function createWorld(level) {
   };
 
   /* Носители: те же громилы, но со своей стихией — она их и защищает. */
-  const SHIELD_BY_TYPE = { 7: 'fire', 8: 'water', 9: 'wind' };
+  const SHIELD_BY_TYPE = { 7: 'fire', 8: 'water', 9: 'wind', 10: 'earth', 11: 'bolt' };
 
   for (const entity of level.entities) {
     const x = entity.x * TILE_SIZE + TILE_SIZE / 2;
@@ -553,50 +553,60 @@ export function killPlayer(world, angle) {
 
 function releaseStack(world) {
   const player = world.player;
-  const loaded = formFor(player.stack);
-  if (!loaded) return;
+  const spell = spellOf(player.stack);
+  if (!spell) return;
 
   player.stack = [];
-  const { form, elements } = loaded;
 
   /* У луча замах: линию видно заранее, и уйти с неё успевают обе стороны. */
-  if (form.kind === 'beam') {
-    player.windup = form.windup;
-    player.pending = { form, elements };
-    world.events.push({ type: 'daemon-windup', form: form.id });
+  if (spell.form.kind === 'beam') {
+    player.windup = spell.form.windup;
+    player.pending = spell;
+    world.events.push({ type: 'daemon-windup', form: spell.form.id });
     return;
   }
 
-  castForm(world, form, elements);
+  castForm(world, spell);
 }
 
-function castForm(world, form, elements) {
+/*
+ * Заклинание ходит по миру целиком, а не разобранным на форму и список
+ * стихий: вещество нужно всем — оно решает цвет, что останется на полу и
+ * кого возьмёт попадание. Разбирать его на входе значило бы собирать
+ * обратно в каждой из пяти функций ниже.
+ */
+function castForm(world, spell) {
   const player = world.player;
   const angle = player.angle;
+  const { form, substance } = spell;
 
   player.cooldown = form.cooldown || 0.22;
   emitNoise(world, player.x, player.y, form.noise, 'player');
   world.fx.shake = Math.max(world.fx.shake, form.kind === 'nova' ? 9 : 4.5);
   world.fx.punch = 1;
-  world.events.push({ type: 'daemon', form: form.id, elements });
+  world.events.push({
+    type: 'daemon', form: form.id, elements: spell.elements, substance: substance.id,
+  });
 
   if (form.kind === 'shot') {
-    spawnDaemon(world, angle, form, elements);
+    spawnDaemon(world, angle, spell);
   } else if (form.kind === 'fan') {
     for (const shift of [-form.spread, 0, form.spread]) {
-      spawnDaemon(world, angle + shift, form, elements);
+      spawnDaemon(world, angle + shift, spell);
     }
   } else if (form.kind === 'cone') {
-    castCone(world, form, elements, angle);
+    castCone(world, spell, angle);
   } else if (form.kind === 'beam') {
-    castBeam(world, form, elements, angle);
+    castBeam(world, spell, angle);
   } else if (form.kind === 'nova') {
-    castNova(world, form, elements);
+    castNova(world, spell);
   }
 }
 
-function spawnDaemon(world, angle, form, elements) {
+function spawnDaemon(world, angle, spell) {
   const player = world.player;
+  const { form, substance } = spell;
+
   world.bullets.push({
     x: player.x + Math.cos(angle) * 14,
     y: player.y + Math.sin(angle) * 14,
@@ -604,16 +614,19 @@ function spawnDaemon(world, angle, form, elements) {
     vy: Math.sin(angle) * form.speed,
     from: 'player',
     weapon: 'daemon',
-    elements,
+    elements: spell.elements,
+    substance,
     pierce: form.pierce || 0,
     breaks: Boolean(form.breaks),
-    colour: colourOf(elements[0]),
+    colour: substance.colour,
     life: form.life,
   });
 }
 
-function castCone(world, form, elements, angle) {
+function castCone(world, spell, angle) {
   const player = world.player;
+  const { form, substance } = spell;
+  const elements = spell.elements;
 
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
@@ -630,12 +643,14 @@ function castCone(world, form, elements, angle) {
   world.blasts.push({
     kind: 'cone', x: player.x, y: player.y, angle,
     reach: form.reach, arc: form.arc,
-    life: 0.2, span: 0.2, colour: colourOf(elements[0]),
+    life: 0.2, span: 0.2, colour: substance.colour,
   });
 }
 
-function castBeam(world, form, elements, angle) {
+function castBeam(world, spell, angle) {
   const player = world.player;
+  const { form, substance } = spell;
+  const elements = spell.elements;
   const step = 6;
   let distance = 0;
 
@@ -669,7 +684,7 @@ function castBeam(world, form, elements, angle) {
     x: player.x, y: player.y,
     x2: player.x + Math.cos(angle) * distance,
     y2: player.y + Math.sin(angle) * distance,
-    life: 0.26, span: 0.26, colour: colourOf(elements[0]),
+    life: 0.26, span: 0.26, colour: substance.colour,
   });
 }
 
@@ -679,8 +694,10 @@ function castBeam(world, form, elements, angle) {
  * кнопку паники, и в игре, где смерть стоит полсекунды, такая смерть
  * скорее смешная, чем обидная.
  */
-function castNova(world, form, elements) {
+function castNova(world, spell) {
   const player = world.player;
+  const { form, substance } = spell;
+  const elements = spell.elements;
 
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
@@ -695,7 +712,7 @@ function castNova(world, form, elements) {
 
   world.blasts.push({
     kind: 'nova', x: player.x, y: player.y,
-    radius: form.radius, life: 0.3, span: 0.3, colour: '#ffffff',
+    radius: form.radius, life: 0.3, span: 0.3, colour: '#ffffff', tint: substance.colour,
   });
 
   /*
@@ -818,7 +835,7 @@ function updatePlayer(world, dt, intent) {
     if (player.windup <= 0 && player.pending) {
       const pending = player.pending;
       player.pending = null;
-      castForm(world, pending.form, pending.elements);
+      castForm(world, pending);
     }
     return;
   }
