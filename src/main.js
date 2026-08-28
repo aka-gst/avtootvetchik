@@ -9,7 +9,7 @@
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
 import { createWorld, update, WEAPONS } from './world.js';
-import { AIM_CONE, assistAim, closeThreat, meleeSnap, hasTargetUnderAim } from './aim.js';
+import { AIM_CONE, assistAim, closeThreat, meleeSnap, hasTargetUnderAim, awareTargetInReach } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -52,8 +52,18 @@ const ui = {
   ghostAim: $('ghostAim'),
 };
 
-/* Клавиши стихий: цифровой ряд слева, чтобы левая рука не уходила с WASD. */
-const CHARGE_KEYS = { Digit1: 'therm', Digit2: 'ice', Digit3: 'surge' };
+/*
+ * Демоны набираются правой рукой: ← термал, ↑ лёд, → разряд. Цифровой ряд
+ * оставлен дубликатом — кому-то привычнее он, а стоит это трёх строк.
+ */
+const CHARGE_KEYS = {
+  ArrowLeft: 'therm',
+  ArrowUp: 'ice',
+  ArrowRight: 'surge',
+  Digit1: 'therm',
+  Digit2: 'ice',
+  Digit3: 'surge',
+};
 
 const SFX_BY_EVENT = {
   shot: 'shot',
@@ -174,7 +184,7 @@ function setToast(text, seconds = 2) {
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНОВ — УДАР ИХ ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ, СТРЕЛКИ — ЦЕЛИТЬ, ПРОБЕЛ — БИТЬ. 1/2/3 НАБИРАЮТ ДЕМОНОВ, УДАР ИХ ВЫПУСКАЕТ. E — ВЗЯТЬ, Q — БРОСИТЬ, R — ЗАНОВО.';
+    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНОВ: ← ТЕРМАЛ, ↑ ЛЁД, → РАЗРЯД. ПРОБЕЛ — ПОДОБРАТЬ, ↓ — БРОСИТЬ. ⏎ ИЛИ ЛКМ — УДАР И ВЫПУСК ДЕМОНА; ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, БЬЁТ САМ. R — ЗАНОВО.';
 }
 
 
@@ -288,8 +298,10 @@ function buildIntent(raw) {
     aimAngle: null,
     attack: false,
     charge: null,
-    pickup: input.tookKey('KeyE') || input.tookKey('Pickup'),
-    throw: input.tookKey('KeyQ') || input.tookKey('Throw'),
+    /* Пробел берёт с пола, стрелка вниз бросает — обе под правой рукой. */
+    pickup: input.tookKey('Space') || input.tookKey('KeyE') || input.tookKey('Pickup'),
+    throw: input.tookKey('ArrowDown') || input.tookKey('KeyQ') || input.tookKey('Throw'),
+    dump: input.tookKey('Backspace') || input.tookKey('Digit0'),
   };
 
   /* Забираем все три нажатия, а не первое: иначе непрочитанное всплывёт кадром позже. */
@@ -316,7 +328,7 @@ function buildIntent(raw) {
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */
-  const fired = input.tookKey('Fire') || input.tookKey('Space') || input.tookKey('KeyJ');
+  const fired = input.tookKey('Fire') || input.tookKey('Enter') || input.tookKey('KeyJ');
   intent.attack = fired || raw.attackHeld;
 
   /*
@@ -327,6 +339,19 @@ function buildIntent(raw) {
    */
   if (!intent.attack && raw.aimStick !== null && intent.aimAngle !== null) {
     intent.attack = hasTargetUnderAim(world, intent.aimAngle);
+  }
+
+  /*
+   * Автоудар в ближнем бою. Обе руки заняты — левая ведёт, правая набирает
+   * демонов, — поэтому по тому, кто уже бросился на игрока, удар идёт сам.
+   * Спящих это не касается: убийство со спины остаётся ручным, иначе мимо
+   * часового нельзя было бы просто пройти.
+   *
+   * Очередь демонов автоудар не трогает никогда: набранное выпускают
+   * осознанно, на то оно и ставка.
+   */
+  if (!intent.attack && !player.stack.length && intent.aimAngle !== null) {
+    intent.attack = awareTargetInReach(world, intent.aimAngle);
   }
 
   if (intent.attack) {
@@ -489,7 +514,7 @@ function frame(now) {
   const restart = input.tookKey('KeyR');
   if (scene === 'dead' || scene === 'dying') {
     /* После смерти перезапускает всё, что под рукой: R, пробел, удар. */
-    if (restart || input.tookKey('Fire') || input.tookKey('Space') || input.tookKey('KeyJ')) {
+    if (restart || input.tookKey('Fire') || input.tookKey('Enter') || input.tookKey('Space')) {
       startLevel(level, { silent: true });
     }
   } else if (restart && (scene === 'play' || scene === 'pause')) {

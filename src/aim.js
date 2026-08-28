@@ -57,10 +57,10 @@ export function assistAim(world, angle, cone) {
  * только из движения. Поэтому вплотную подошедший враг сам притягивает
  * взгляд — иначе игра требует отбежать, чтобы ударить стоящего рядом.
  */
-export function closeThreat(world) {
+export function closeThreat(world, radius = 130) {
   const player = world.player;
   let angle = null;
-  let best = 130;
+  let best = radius;
 
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
@@ -124,6 +124,35 @@ export function hasTargetUnderAim(world, angle) {
     const dy = enemy.y - player.y;
     if (Math.hypot(dx, dy) > range) continue;
     if (Math.abs(angleDelta(angle, Math.atan2(dy, dx))) > spread) continue;
+    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
+    return true;
+  }
+
+  return false;
+}
+
+
+/*
+ * Есть ли под ударом тот, кто уже знает про игрока.
+ *
+ * По этому условию срабатывает автоудар: в схеме, где обе руки заняты
+ * ходьбой и набором, жать ещё и удар в ближнем бою нечем. Но только по
+ * заметившим — иначе автоудар сам убивал бы стоящих спиной, и красться
+ * мимо часового стало бы невозможно.
+ */
+export function awareTargetInReach(world, angle) {
+  const player = world.player;
+  const weapon = WEAPONS[player.weapon];
+  if (weapon.kind !== 'melee') return false;
+
+  for (const enemy of world.enemies) {
+    if (!enemy.alive) continue;
+    if (enemy.state !== 'chase' && enemy.state !== 'alert' && enemy.state !== 'down') continue;
+
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    if (Math.hypot(dx, dy) > weapon.reach + BODY) continue;
+    if (Math.abs(angleDelta(angle, Math.atan2(dy, dx))) > weapon.arc / 2) continue;
     if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
     return true;
   }

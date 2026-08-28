@@ -886,6 +886,14 @@ function updatePlayer(world, dt, intent) {
     return;
   }
 
+  /* Сброс набранного: время уже потрачено, но выпустить не туда — хуже. */
+  if (intent.dump && (player.stack.length || player.chargeLeft > 0)) {
+    player.stack = [];
+    player.charging = null;
+    player.chargeLeft = 0;
+    world.events.push({ type: 'dump' });
+  }
+
   if (intent.charge && player.stack.length < STACK_LIMIT && player.chargeLeft <= 0) {
     player.charging = intent.charge;
     player.chargeLeft = CHARGE_STEP;

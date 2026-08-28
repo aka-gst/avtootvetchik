@@ -15,7 +15,7 @@
 import { CAMPAIGN } from '../src/levels.js';
 import { createWorld, update, WEAPONS, TILE_SIZE, hasSight, tileIndex } from '../src/world.js';
 import { createScore } from '../src/score.js';
-import { AIM_CONE, assistAim, closeThreat, meleeSnap } from '../src/aim.js';
+import { AIM_CONE, assistAim, closeThreat, meleeSnap, awareTargetInReach } from '../src/aim.js';
 import { CHARGE_STEP, shapeOf, formFor } from '../src/daemons.js';
 import { buildFlowField } from '../src/ai.js';
 import { blocksMove } from '../src/level.js';
@@ -309,6 +309,20 @@ function nearest(world) {
 
   place(near, 30, 2);
   check('если цель уже под ударом, доворота нет', meleeSnap(world, 0) === null);
+
+  /*
+   * Автоудар бьёт только по заметившим. Иначе он убивал бы часового,
+   * мимо которого игрок собирался пройти, — и стелс перестал бы
+   * существовать как выбор.
+   */
+  player.weapon = 'bat';
+  near.state = 'idle';
+  check('по спящему автоудар молчит', awareTargetInReach(world, 0) === false);
+  near.state = 'chase';
+  check('по бросившемуся автоудар срабатывает', awareTargetInReach(world, 0) === true);
+  player.weapon = 'pistol';
+  check('огнестрел сам не стреляет', awareTargetInReach(world, 0) === false);
+  player.weapon = 'bat';
 
   /* И то же самое целиком: стоя на месте, добить соседа сбоку. */
   place(near, 4, -28);
