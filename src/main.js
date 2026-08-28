@@ -265,7 +265,10 @@ function callScreen() {
     title: level.title,
     text: level.call,
     stats: `<span>${controlsHint()}</span>`
-      + (best ? `<span>ЛУЧШЕЕ ЗДЕСЬ: ${best.total} · РАНГ ${best.rank} · ${formatTime(best.time)}</span>` : ''),
+      + (best ? `<span>ЛУЧШЕЕ ЗДЕСЬ: ${best.total} · РАНГ ${best.rank} · ${formatTime(best.time)}</span>` : '')
+      /* Выключенный звук переживает перезагрузку, и молчащая игра выглядит
+         сломанной. Пусть об этом будет сказано там, где на это смотрят. */
+      + (audio.isMuted() ? '<span data-warn="1">ЗВУК ВЫКЛЮЧЕН — КЛАВИША M ВКЛЮЧАЕТ</span>' : ''),
     action: 'ВЗЯТЬ КЛЮЧИ',
   });
 }

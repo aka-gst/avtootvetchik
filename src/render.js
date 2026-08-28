@@ -25,14 +25,15 @@ import { colourOf, CHARGE_STEP } from './daemons.js';
 export const THEMES = [
   {
     name: 'бар',
-    floor: '#2a1338',
-    floorAlt: '#301741',
-    grout: '#170a20',
-    wall: '#0c0713',
-    wallTop: '#1c0f2b',
+    floor: '#3a1d4d',
+    floorAlt: '#432257',
+    grout: '#24122f',
+    wall: '#100819',
+    wallTop: '#2b1640',
     wallEdge: '#ff2d95',
+    door: '#5a2a7a',
     rug: '#7a1a45',
-    table: '#3a2418',
+    table: '#4a2e1c',
     tableEdge: '#ff9b52',
     glass: '#7ad9ff',
     haze: '#ff2d95',
@@ -41,14 +42,15 @@ export const THEMES = [
   /* Серверная: холоднее и жёстче бара — здесь светится не вывеска, а стойки. */
   {
     name: 'серверная',
-    floor: '#10222e',
-    floorAlt: '#142a38',
-    grout: '#07131b',
-    wall: '#050b12',
-    wallTop: '#0d1a26',
+    floor: '#1a3748',
+    floorAlt: '#20404f',
+    grout: '#0d2130',
+    wall: '#050d14',
+    wallTop: '#12293a',
     wallEdge: '#4de1ff',
+    door: '#1d5570',
     rug: '#123a4a',
-    table: '#1b2b34',
+    table: '#23333d',
     tableEdge: '#7ad9ff',
     glass: '#9be7ff',
     haze: '#4de1ff',
@@ -130,6 +132,10 @@ export function createRenderer(canvas) {
 
         bakedCtx.fillStyle = ((x + y) & 1) ? theme.floor : theme.floorAlt;
         bakedCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        /* Тонкий шов между плитами: без него пол выглядит пустотой. */
+        bakedCtx.fillStyle = theme.grout;
+        bakedCtx.fillRect(px, py + TILE_SIZE - 1, TILE_SIZE, 1);
+        bakedCtx.fillRect(px + TILE_SIZE - 1, py, 1, TILE_SIZE);
 
         if (tile === TILE.RUG) {
           bakedCtx.fillStyle = theme.rug;
@@ -138,37 +144,71 @@ export function createRenderer(canvas) {
           bakedCtx.fillRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10);
         }
 
+        /*
+         * Дверь — это проём, а не квадратик с точкой. Косяки ставятся с
+         * той стороны, где стена, поэтому проход виден как проход: сквозь
+         * него идёт пол, а поперёк лежит порог.
+         */
         if (tile === TILE.DOOR) {
-          bakedCtx.fillStyle = '#241531';
+          const left = x > 0 ? world.tiles[y * world.w + (x - 1)] : TILE.WALL;
+          const right = x < world.w - 1 ? world.tiles[y * world.w + (x + 1)] : TILE.WALL;
+          const vertical = left === TILE.WALL && right === TILE.WALL;
+
+          bakedCtx.fillStyle = theme.door;
           bakedCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          bakedCtx.strokeStyle = theme.wallEdge;
-          bakedCtx.lineWidth = 2;
-          bakedCtx.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 7, TILE_SIZE - 7);
+          bakedCtx.fillStyle = ((x + y) & 1) ? theme.floor : theme.floorAlt;
+          bakedCtx.fillRect(px + (vertical ? 4 : 0), py + (vertical ? 0 : 4),
+            TILE_SIZE - (vertical ? 8 : 0), TILE_SIZE - (vertical ? 0 : 8));
+
           bakedCtx.fillStyle = theme.wallEdge;
-          bakedCtx.fillRect(px + TILE_SIZE - 11, py + TILE_SIZE / 2 - 2, 4, 4);
+          if (vertical) {
+            bakedCtx.fillRect(px, py, 4, TILE_SIZE);
+            bakedCtx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
+          } else {
+            bakedCtx.fillRect(px, py, TILE_SIZE, 4);
+            bakedCtx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
+          }
         }
       }
     }
 
-    /* Стены рисуются вторым проходом: их тень должна лечь поверх пола. */
+    /*
+     * Стены рисуются вторым проходом и в свой слой.
+     *
+     * Первая версия была почти чёрной полосой с тонкой неоновой чертой
+     * снизу — и на живой партии выяснилось, что стену от пустоты не
+     * отличить. Теперь у стены есть тело, освещённая верхняя грань и
+     * яркая кромка с каждой стороны, которая смотрит в пол. Тень под ней
+     * отделяет её от пола окончательно.
+     */
     for (let y = 0; y < world.h; y += 1) {
       for (let x = 0; x < world.w; x += 1) {
         const tile = world.tiles[y * world.w + x];
         const px = x * TILE_SIZE;
         const py = y * TILE_SIZE;
 
+        const at = (dx, dy) => {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) return TILE.WALL;
+          return world.tiles[ny * world.w + nx];
+        };
+
         if (tile === TILE.WALL) {
-          const below = y + 1 < world.h ? world.tiles[(y + 1) * world.w + x] : TILE.WALL;
           wallsCtx.fillStyle = theme.wall;
           wallsCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           wallsCtx.fillStyle = theme.wallTop;
-          wallsCtx.fillRect(px, py, TILE_SIZE, 7);
+          wallsCtx.fillRect(px, py, TILE_SIZE, 9);
 
-          if (below !== TILE.WALL) {
-            wallsCtx.fillStyle = theme.wallEdge;
-            wallsCtx.fillRect(px, py + TILE_SIZE - 3, TILE_SIZE, 3);
+          wallsCtx.fillStyle = theme.wallEdge;
+          if (at(0, 1) !== TILE.WALL) wallsCtx.fillRect(px, py + TILE_SIZE - 3, TILE_SIZE, 3);
+          if (at(0, -1) !== TILE.WALL) wallsCtx.fillRect(px, py, TILE_SIZE, 2);
+          if (at(-1, 0) !== TILE.WALL) wallsCtx.fillRect(px, py, 2, TILE_SIZE);
+          if (at(1, 0) !== TILE.WALL) wallsCtx.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
+
+          if (at(0, 1) !== TILE.WALL) {
             wallsCtx.fillStyle = 'rgba(0,0,0,.55)';
-            wallsCtx.fillRect(px, py + TILE_SIZE, TILE_SIZE, 9);
+            wallsCtx.fillRect(px, py + TILE_SIZE, TILE_SIZE, 10);
           }
         }
 
@@ -183,7 +223,7 @@ export function createRenderer(canvas) {
         }
 
         if (tile === TILE.GLASS) {
-          bakedCtx.fillStyle = 'rgba(122,217,255,.16)';
+          bakedCtx.fillStyle = 'rgba(122,217,255,.2)';
           bakedCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           bakedCtx.strokeStyle = theme.glass;
           bakedCtx.lineWidth = 2;

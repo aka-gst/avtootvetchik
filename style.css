@@ -472,6 +472,10 @@ html, body {
   line-height: 1.55;
 }
 
+.veil-stats span[data-warn="1"] {
+  color: var(--pink);
+}
+
 .veil-stats {
   display: flex;
   flex-wrap: wrap;
@@ -645,5 +649,9 @@ html, body {
   .veil-card { padding: 16px; }
   .veil h1 { font-size: 22px; }
   .veil p { margin-bottom: 10px; }
-  .veil-stats { margin-bottom: 12px; }
+  .veil-stats span[data-warn="1"] {
+  color: var(--pink);
+}
+
+.veil-stats { margin-bottom: 12px; }
 }
