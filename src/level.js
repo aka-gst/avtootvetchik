@@ -55,9 +55,9 @@ export const ENTITY = {
    * Носители щита. Номера добавлены после первых кодов — старые строки
    * от этого не поехали, потому что номер значит одно и то же навсегда.
    */
-  CARRIER_THERM: 7,
-  CARRIER_ICE: 8,
-  CARRIER_SURGE: 9,
+  CARRIER_FIRE: 7,
+  CARRIER_WATER: 8,
+  CARRIER_WIND: 9,
 };
 
 /* Экранный словарь для рисования уровней руками. */
@@ -76,9 +76,9 @@ const CHAR_ENTITY = {
   s: ENTITY.SHOOTER,
   b: ENTITY.W_BAT,
   p: ENTITY.W_PISTOL,
-  f: ENTITY.CARRIER_THERM,
-  i: ENTITY.CARRIER_ICE,
-  r: ENTITY.CARRIER_SURGE,
+  f: ENTITY.CARRIER_FIRE,
+  w: ENTITY.CARRIER_WATER,
+  v: ENTITY.CARRIER_WIND,
 };
 
 export function blocksMove(tile) {

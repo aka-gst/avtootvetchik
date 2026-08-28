@@ -162,9 +162,9 @@ export function createInput(surface) {
       attack: 'Fire',
       pickup: 'Pickup',
       throw: 'Throw',
-      therm: 'Digit1',
-      ice: 'Digit2',
-      surge: 'Digit3',
+      fire: 'Digit1',
+      water: 'Digit2',
+      wind: 'Digit3',
     };
 
     const press = (event) => {

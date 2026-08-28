@@ -336,20 +336,20 @@ function nearest(world) {
 
 /* --- E4. Демоны: узоры, щиты, своя же вспышка --- */
 {
-  check('одна стихия — плевок', shapeOf(['therm']).id === 'spit');
-  check('две одинаковые — сгусток', shapeOf(['ice', 'ice']).id === 'bolt');
-  check('две разные — выдох', shapeOf(['ice', 'therm']).id === 'cone');
-  check('три одинаковые — луч', shapeOf(['therm', 'therm', 'therm']).id === 'beam');
-  check('края одинаковые — пробой', shapeOf(['therm', 'ice', 'therm']).id === 'pierce');
-  check('три разные — вспышка', shapeOf(['therm', 'ice', 'surge']).id === 'nova');
-  check('две и третья — залп, а не пустота', shapeOf(['therm', 'therm', 'ice']).id === 'shard');
+  check('одна стихия — плевок', shapeOf(['fire']).id === 'spit');
+  check('две одинаковые — сгусток', shapeOf(['water', 'water']).id === 'bolt');
+  check('две разные — выдох', shapeOf(['water', 'fire']).id === 'cone');
+  check('три одинаковые — луч', shapeOf(['fire', 'fire', 'fire']).id === 'beam');
+  check('края одинаковые — пробой', shapeOf(['fire', 'water', 'fire']).id === 'pierce');
+  check('три разные — вспышка', shapeOf(['fire', 'water', 'wind']).id === 'nova');
+  check('две и третья — залп, а не пустота', shapeOf(['fire', 'fire', 'water']).id === 'shard');
   check('форма несёт все свои стихии',
-    formFor(['therm', 'ice', 'therm']).elements.sort().join() === 'ice,therm');
+    formFor(['fire', 'water', 'fire']).elements.sort().join() === 'fire,water');
 
   /* Набор стоит времени и скорости. */
   const world = createWorld(CAMPAIGN[0]);
   const player = world.player;
-  const charging = { ...idle, charge: 'therm' };
+  const charging = { ...idle, charge: 'fire' };
 
   update(world, DT, charging);
   check('набор занимает слот не мгновенно', player.stack.length === 0 && player.chargeLeft > 0);
@@ -366,7 +366,7 @@ function nearest(world) {
   const freeSpeed = Math.hypot(runFree.player.vx, runFree.player.vy);
 
   const runCharging = createWorld(CAMPAIGN[0]);
-  update(runCharging, DT, { ...idle, moveX: 1, charge: 'ice' });
+  update(runCharging, DT, { ...idle, moveX: 1, charge: 'water' });
   for (let i = 0; i < 12; i += 1) update(runCharging, DT, { ...idle, moveX: 1 });
   const slowSpeed = Math.hypot(runCharging.player.vx, runCharging.player.vy);
   check('во время набора игрок медленнее', slowSpeed < freeSpeed * 0.7,
@@ -377,8 +377,8 @@ function nearest(world) {
 {
   const world = createWorld(CAMPAIGN[1]);
   const player = world.player;
-  const carrier = world.enemies.find((e) => e.shield === 'ice');
-  check('на втором этаже есть носитель льда', Boolean(carrier));
+  const carrier = world.enemies.find((e) => e.shield === 'water');
+  check('на втором этаже есть носитель воды', Boolean(carrier));
 
   player.weapon = 'bat';
   player.x = carrier.x - 20;
@@ -392,11 +392,11 @@ function nearest(world) {
 
   /* Чужой демон щит тоже только срывает. */
   const second = createWorld(CAMPAIGN[1]);
-  const other = second.enemies.find((e) => e.shield === 'ice');
+  const other = second.enemies.find((e) => e.shield === 'water');
   second.player.x = other.x - 40;
   second.player.y = other.y;
   second.player.angle = 0;
-  second.player.stack = ['therm'];
+  second.player.stack = ['fire'];
   update(second, DT, { ...idle, aimAngle: 0, attack: true });
   for (let i = 0; i < 20; i += 1) update(second, DT, idle);
   check('чужая стихия щит срывает, носителя не берёт',
@@ -404,11 +404,11 @@ function nearest(world) {
 
   /* Свой — снимает щит и носителя разом. */
   const third = createWorld(CAMPAIGN[1]);
-  const matched = third.enemies.find((e) => e.shield === 'ice');
+  const matched = third.enemies.find((e) => e.shield === 'water');
   third.player.x = matched.x - 40;
   third.player.y = matched.y;
   third.player.angle = 0;
-  third.player.stack = ['ice'];
+  third.player.stack = ['water'];
   update(third, DT, { ...idle, aimAngle: 0, attack: true });
   for (let i = 0; i < 20; i += 1) update(third, DT, idle);
   check('свой демон снимает щит вместе с носителем', !matched.alive);
@@ -420,7 +420,7 @@ function nearest(world) {
   const tight = createWorld(CAMPAIGN[1]);
   tight.player.x = 6 * 32 + 16;
   tight.player.y = 13 * 32 + 16;
-  tight.player.stack = ['therm', 'ice', 'surge'];
+  tight.player.stack = ['fire', 'water', 'wind'];
   update(tight, DT, { ...idle, attack: true });
   check('вспышка в узком проходе достаёт и того, кто её выпустил',
     !tight.player.alive, tight.player.alive ? 'игрок цел' : 'игрок убит');
@@ -429,7 +429,7 @@ function nearest(world) {
   const open = createWorld(CAMPAIGN[1]);
   open.player.x = 17 * 32 + 16;
   open.player.y = 10 * 32 + 16;
-  open.player.stack = ['therm', 'ice', 'surge'];
+  open.player.stack = ['fire', 'water', 'wind'];
   update(open, DT, { ...idle, attack: true });
   check('в зале вспышка безопасна для своего', open.player.alive);
 }
@@ -462,7 +462,7 @@ function nearest(world) {
     }
 
     player.weapon = style === 'bat' ? 'bat' : 'fists';
-    const queue = ['therm', 'ice', 'surge'];
+    const queue = ['fire', 'water', 'wind'];
     let t = 0;
 
     while (t < 8 && marked.some((e) => e.alive)) {

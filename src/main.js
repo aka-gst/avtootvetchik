@@ -57,12 +57,12 @@ const ui = {
  * оставлен дубликатом — кому-то привычнее он, а стоит это трёх строк.
  */
 const CHARGE_KEYS = {
-  ArrowLeft: 'therm',
-  ArrowUp: 'ice',
-  ArrowRight: 'surge',
-  Digit1: 'therm',
-  Digit2: 'ice',
-  Digit3: 'surge',
+  ArrowLeft: 'fire',
+  ArrowUp: 'water',
+  ArrowRight: 'wind',
+  Digit1: 'fire',
+  Digit2: 'water',
+  Digit3: 'wind',
 };
 
 const SFX_BY_EVENT = {
@@ -184,7 +184,7 @@ function setToast(text, seconds = 2) {
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНОВ — УДАР ИХ ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНОВ: ← ТЕРМАЛ, ↑ ЛЁД, → РАЗРЯД. ПРОБЕЛ — ПОДОБРАТЬ, ↓ — БРОСИТЬ. ⏎ ИЛИ ЛКМ — УДАР И ВЫПУСК ДЕМОНА; ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, БЬЁТ САМ. R — ЗАНОВО.';
+    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНОВ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР. ПРОБЕЛ — ПОДОБРАТЬ, ↓ — БРОСИТЬ. ⏎ ИЛИ ЛКМ — УДАР И ВЫПУСК ДЕМОНА; ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, БЬЁТ САМ. R — ЗАНОВО.';
 }
 
 
@@ -311,20 +311,23 @@ function buildIntent(raw) {
 
   if (raw.aimStick !== null) {
     intent.aimAngle = assistAim(world, raw.aimStick, AIM_CONE.stick);
-  } else if (raw.aimKeys) {
-    intent.aimAngle = assistAim(world, Math.atan2(raw.aimKeys.y, raw.aimKeys.x), AIM_CONE.keys);
   } else if (!raw.touch && raw.mouse.moved) {
     const worldX = lastView.camX + (raw.mouse.x - canvas.clientWidth / 2) / lastView.zoom;
     const worldY = lastView.camY + (raw.mouse.y - canvas.clientHeight / 2) / lastView.zoom;
     intent.aimAngle = assistAim(world, Math.atan2(worldY - player.y, worldX - player.x), AIM_CONE.mouse);
   } else if (raw.moveX || raw.moveY) {
     /*
-     * Ни мыши, ни стрелок — целимся туда, куда бежим, и доводим до цели.
-     * Это и есть игра «чисто с кнопок»: одной рукой на WASD и пробеле.
+     * Мышь не трогают — целимся туда, куда бежим, и доводим до цели.
+     * Это и есть игра «чисто с кнопок»: WASD ведёт, прицел идёт следом.
      */
     intent.aimAngle = assistAim(world, Math.atan2(raw.moveY, raw.moveX), AIM_CONE.run);
   } else {
-    intent.aimAngle = closeThreat(world);
+    /*
+     * Стоим и не трогаем мышь. С набранной очередью смотрим дальше:
+     * демона надо куда-то выпустить, а повернуться в этой раскладке
+     * нечем — стрелки заняты набором.
+     */
+    intent.aimAngle = closeThreat(world, player.stack.length ? 300 : 130);
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */

@@ -278,12 +278,12 @@ html, body {
 .daemon-key {
   width: 54px;
   height: 54px;
-  font: 900 16px var(--mono);
+  font: 900 13px var(--mono);
 }
 
-.daemon-key[data-element="therm"] { border-color: #ff5a1f; color: #ff5a1f; }
-.daemon-key[data-element="ice"] { border-color: #4de1ff; color: #4de1ff; }
-.daemon-key[data-element="surge"] { border-color: #ffe06b; color: #ffe06b; }
+.daemon-key[data-element="fire"] { border-color: #ff5a1f; color: #ff5a1f; }
+.daemon-key[data-element="water"] { border-color: #4de1ff; color: #4de1ff; }
+.daemon-key[data-element="wind"] { border-color: #76ff9f; color: #76ff9f; }
 
 .mute {
   position: fixed;

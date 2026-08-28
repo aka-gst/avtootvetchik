@@ -21,7 +21,6 @@ import { WEAPONS, BODY, hasSight, angleDelta } from './world.js';
 export const AIM_CONE = {
   mouse: 0.06,
   stick: 0.45,
-  keys: 0.5,
   run: 0.7,
 };
 

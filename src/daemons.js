@@ -19,12 +19,12 @@
  */
 
 export const ELEMENTS = {
-  therm: { id: 'therm', name: 'ТЕРМАЛ', short: 'Т', colour: '#ff5a1f' },
-  ice: { id: 'ice', name: 'ЛЁД', short: 'Л', colour: '#4de1ff' },
-  surge: { id: 'surge', name: 'РАЗРЯД', short: 'Р', colour: '#ffe06b' },
+  fire: { id: 'fire', name: 'ОГОНЬ', short: 'ОГ', colour: '#ff5a1f' },
+  water: { id: 'water', name: 'ВОДА', short: 'ВД', colour: '#4de1ff' },
+  wind: { id: 'wind', name: 'ВЕТЕР', short: 'ВТ', colour: '#76ff9f' },
 };
 
-export const ELEMENT_ORDER = ['therm', 'ice', 'surge'];
+export const ELEMENT_ORDER = ['fire', 'water', 'wind'];
 
 export const STACK_LIMIT = 3;
 
@@ -107,5 +107,5 @@ export function formFor(stack) {
 }
 
 export function colourOf(element) {
-  return (ELEMENTS[element] || ELEMENTS.therm).colour;
+  return (ELEMENTS[element] || ELEMENTS.fire).colour;
 }

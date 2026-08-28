@@ -267,7 +267,7 @@ export function createWorld(level) {
   };
 
   /* Носители: те же громилы, но под видимым щитом одной стихии. */
-  const SHIELD_BY_TYPE = { 7: 'therm', 8: 'ice', 9: 'surge' };
+  const SHIELD_BY_TYPE = { 7: 'fire', 8: 'water', 9: 'wind' };
 
   for (const entity of level.entities) {
     const x = entity.x * TILE_SIZE + TILE_SIZE / 2;
