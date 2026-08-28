@@ -129,7 +129,13 @@ export function createAudio() {
 
   const EFFECTS = {
     shot() { noise(0.16, 'highpass', 900, 0.55); tone('square', 320, 60, 0.14, 0.35); },
-    swing() { noise(0.16, 'bandpass', 1500, 0.22, 1.2); },
+    swing() { noise(0.16, 'bandpass', 1500, 0.14, 1.2); },
+    /* Глухой удар в тело: низ даёт вес, шум — треск. Свист остаётся промахом. */
+    impact() {
+      tone('sine', 240, 55, 0.2, 0.7);
+      noise(0.14, 'lowpass', 900, 0.55);
+      tone('square', 110, 45, 0.1, 0.28);
+    },
     knock() { tone('sine', 180, 50, 0.18, 0.5); noise(0.1, 'lowpass', 500, 0.3); },
     kill() { noise(0.28, 'lowpass', 1200, 0.5); tone('sawtooth', 140, 40, 0.3, 0.35); },
     death() { tone('sawtooth', 420, 40, 0.9, 0.5); noise(0.6, 'lowpass', 700, 0.4); },

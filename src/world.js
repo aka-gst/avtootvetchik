@@ -173,6 +173,15 @@ function spark(world, x, y, angle, spread, count, color, speed) {
   }
 }
 
+/*
+ * Кольцо удара. Расходящаяся окружность в точке касания — самый дешёвый
+ * способ ответить на вопрос «попал или нет»: она появляется ровно там,
+ * где удар что-то нашёл, и только тогда.
+ */
+function pop(world, x, y, radius, colour) {
+  world.pops.push({ x, y, r: radius, max: radius * 2.4, life: 0.22, span: 0.22, colour });
+}
+
 function bleed(world, x, y, angle, force) {
   for (let i = 0; i < 22; i += 1) {
     const a = angle + rand(-0.9, 0.9);
@@ -227,6 +236,7 @@ export function createWorld(level) {
     pickups: [],
     bullets: [],
     particles: [],
+    pops: [],
     decals: [],
     casings: [],
     noises: [],
@@ -334,6 +344,7 @@ function swingMelee(world, attacker, from) {
     ? world.enemies.filter((e) => e.alive)
     : [world.player].filter((p) => p.alive);
 
+  attacker.swingHit = 0;
   let connected = false;
 
   for (const target of targets) {
@@ -362,18 +373,28 @@ function swingMelee(world, attacker, from) {
     }
   }
 
+  /*
+   * Попадание должно ощущаться иначе, чем промах, — и не одним звуком.
+   * Кадр замирает, экран вздрагивает, камера коротко наезжает, а дуга
+   * удара наливается белым. Промах не делает ничего из этого.
+   */
   if (connected) {
-    world.fx.hitstop = Math.max(world.fx.hitstop, 0.05);
-    world.fx.shake = Math.max(world.fx.shake, 5);
+    world.fx.hitstop = Math.max(world.fx.hitstop, 0.08);
+    world.fx.shake = Math.max(world.fx.shake, 7);
+    world.fx.punch = 1;
+    attacker.swingHit = 0.2;
+    world.events.push({ type: 'impact', lethal: weapon.lethal, from });
   }
 }
 
 export function knockDown(world, enemy, angle) {
   enemy.downed = DOWN_TIME;
   enemy.state = 'down';
-  enemy.vx += Math.cos(angle) * 220;
-  enemy.vy += Math.sin(angle) * 220;
-  spark(world, enemy.x, enemy.y, angle, 1.2, 6, '#ffffff', 120);
+  enemy.vx += Math.cos(angle) * 260;
+  enemy.vy += Math.sin(angle) * 260;
+  enemy.hitFlash = 0.16;
+  spark(world, enemy.x, enemy.y, angle, 1.2, 9, '#ffffff', 150);
+  pop(world, enemy.x, enemy.y, 14, '255,255,255');
   world.events.push({ type: 'knock' });
 }
 
@@ -383,6 +404,7 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
   world.kills += 1;
 
   bleed(world, enemy.x, enemy.y, angle, cause === 'bullet' ? 260 : 190);
+  pop(world, enemy.x, enemy.y, 16, '255,20,80');
 
   world.corpses.push({
     x: enemy.x + Math.cos(angle) * 6,
@@ -567,6 +589,7 @@ function updatePlayer(world, dt, intent) {
 
   player.cooldown = Math.max(0, player.cooldown - dt);
   player.swing = Math.max(0, player.swing - dt);
+  player.swingHit = Math.max(0, (player.swingHit || 0) - dt);
   player.flash = Math.max(0, (player.flash || 0) - dt);
 
   if (intent.pickup) tryPickup(world);
@@ -605,6 +628,7 @@ function updateEnemy(world, enemy, dt) {
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
   enemy.swing = Math.max(0, (enemy.swing || 0) - dt);
   enemy.flash = Math.max(0, (enemy.flash || 0) - dt);
+  enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt);
 
   if (enemy.downed > 0) {
     enemy.downed -= dt;
@@ -672,6 +696,7 @@ function updateBullets(world, dt) {
 
       if (blocksShot(tile)) {
         spark(world, bullet.x, bullet.y, Math.atan2(-sy, -sx), 1.1, 5, '#ffe06b', 150);
+        pop(world, bullet.x, bullet.y, 5, '255,224,107');
         bullet.life = 0;
         break;
       }
@@ -751,6 +776,9 @@ function updateLoose(world, dt) {
     pickup.vy *= 0.995;
     if (Math.hypot(pickup.vx, pickup.vy) < 60) pickup.flying = false;
   }
+
+  for (const ring of world.pops) ring.life -= dt;
+  world.pops = world.pops.filter((ring) => ring.life > 0);
 
   for (const particle of world.particles) {
     particle.x += particle.vx * dt;

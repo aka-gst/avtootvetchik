@@ -15,6 +15,7 @@
 import { CAMPAIGN } from '../src/levels.js';
 import { createWorld, update, WEAPONS, TILE_SIZE, hasSight, tileIndex } from '../src/world.js';
 import { createScore } from '../src/score.js';
+import { AIM_CONE, assistAim, closeThreat, meleeSnap } from '../src/aim.js';
 import { buildFlowField } from '../src/ai.js';
 import { blocksMove } from '../src/level.js';
 
@@ -231,6 +232,91 @@ function nearest(world) {
     `${final.total} против ${score.state.score}`);
   check('в разборе есть строка за убийства',
     final.lines.some((line) => line.label === 'ЗА УБИЙСТВА'));
+}
+
+/* --- E3. Помощь прицела: игра без мыши --- */
+{
+  const world = createWorld(CAMPAIGN[0]);
+  const player = world.player;
+
+  /* Расчищаем этаж: в проверке участвуют только поставленные вручную. */
+  for (const enemy of world.enemies) enemy.alive = false;
+  const [near, far] = world.enemies;
+
+  /* Ставим только вверх и вбок: под игроком в этом этаже сразу стена. */
+  const place = (enemy, dx, dy) => {
+    enemy.alive = true;
+    enemy.downed = 0;
+    enemy.x = player.x + dx;
+    enemy.y = player.y + dy;
+  };
+
+  /* Враг в 40° от направления бега — сектор бега должен его достать. */
+  place(near, 120, -100);
+  const running = Math.atan2(0, 1);
+  const aimed = assistAim(world, running, AIM_CONE.run);
+  const toNear = Math.atan2(near.y - player.y, near.x - player.x);
+  check('прицел доводится до цели в стороне от курса',
+    Math.abs(aimed - toNear) < 0.001,
+    `${(aimed * 57.3).toFixed(0)}° против ${(toNear * 57.3).toFixed(0)}°`);
+
+  check('узкий сектор мыши так далеко не тянется',
+    assistAim(world, running, AIM_CONE.mouse) === running);
+
+  /*
+   * Правило выбора цели: направление задаёт игрок, расстояние только
+   * разнимает близкие по углу. Иначе наводка начинает спорить с тем,
+   * куда человек показал, и это читается как «прицел живёт своей жизнью».
+   */
+  place(far, 200, -8);
+  place(near, 100, -4);
+  const closer = assistAim(world, running, AIM_CONE.run);
+  check('при равном угле выбирается ближний',
+    Math.abs(closer - Math.atan2(near.y - player.y, near.x - player.x)) < 0.001,
+    `${(closer * 57.3).toFixed(1)}°`);
+
+  place(far, 300, -6);
+  place(near, 90, -60);
+  const aligned = assistAim(world, running, AIM_CONE.run);
+  check('точно по курсу важнее, чем просто рядом',
+    Math.abs(aligned - Math.atan2(far.y - player.y, far.x - player.x)) < 0.001,
+    `${(aligned * 57.3).toFixed(1)}°`);
+  far.alive = false;
+
+  /* За стеной наводка не работает — иначе прицел липнет сквозь этаж. */
+  place(near, 0, -180);
+  check('стена между — цель не ловится (проверка расстановки)',
+    !hasSight(world, player.x, player.y, near.x, near.y));
+  check('сквозь стену прицел не тянет',
+    assistAim(world, -Math.PI / 2, AIM_CONE.run) === -Math.PI / 2);
+
+  /* Стоим без ввода: подошедший вплотную сам притягивает взгляд. */
+  place(near, -60, 0);
+  const threat = closeThreat(world);
+  check('стоя на месте, поворачиваемся к тому, кто рядом',
+    threat !== null && Math.abs(Math.abs(threat) - Math.PI) < 0.001, String(threat));
+
+  place(near, 260, 0);
+  check('дальний никого не притягивает', closeThreat(world) === null);
+
+  /* Добор удара: враг сбоку, замах смотрит прямо. */
+  player.weapon = 'bat';
+  place(near, 8, -26);
+  const snapped = meleeSnap(world, 0);
+  check('удар доворачивается на стоящего вплотную сбоку',
+    snapped !== null && Math.abs(snapped - Math.atan2(-26, 8)) < 0.001, String(snapped));
+
+  place(near, 30, 2);
+  check('если цель уже под ударом, доворота нет', meleeSnap(world, 0) === null);
+
+  /* И то же самое целиком: стоя на месте, добить соседа сбоку. */
+  place(near, 4, -28);
+  player.cooldown = 0;
+  const angle = closeThreat(world);
+  const finalAngle = meleeSnap(world, angle === null ? player.angle : angle) ?? angle;
+  update(world, DT, { moveX: 0, moveY: 0, aimAngle: finalAngle, attack: true });
+  check('стоя без движения, удар по соседу засчитан', !near.alive,
+    near.alive ? 'враг цел' : 'враг убит');
 }
 
 /* --- F. Производительность шага --- */

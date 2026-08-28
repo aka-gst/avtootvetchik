@@ -8,7 +8,8 @@
 
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
-import { createWorld, update, hasSight, angleDelta, WEAPONS } from './world.js';
+import { createWorld, update, WEAPONS } from './world.js';
+import { AIM_CONE, assistAim, closeThreat, meleeSnap, hasTargetUnderAim } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -51,6 +52,7 @@ const ui = {
 const SFX_BY_EVENT = {
   shot: 'shot',
   swing: 'swing',
+  impact: 'impact',
   knock: 'knock',
   kill: 'kill',
   death: 'death',
@@ -260,32 +262,6 @@ function formatTime(seconds) {
    ПРИЦЕЛ
    ========================================================= */
 
-/*
- * Помощь прицеливанию. На мыши она почти не нужна и потому слабая, на
- * пальце — обязательна: 15° сектора вокруг направления стика ловят цель,
- * иначе стик проигрывает мыши вчистую.
- */
-function assistAim(angle, strong) {
-  const player = world.player;
-  let best = angle;
-  let bestDiff = strong ? 0.3 : 0.06;
-
-  for (const enemy of world.enemies) {
-    if (!enemy.alive) continue;
-    const dx = enemy.x - player.x;
-    const dy = enemy.y - player.y;
-    if (Math.hypot(dx, dy) > 360) continue;
-    const toEnemy = Math.atan2(dy, dx);
-    const diff = Math.abs(angleDelta(angle, toEnemy));
-    if (diff > bestDiff) continue;
-    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
-    bestDiff = diff;
-    best = toEnemy;
-  }
-
-  return best;
-}
-
 function buildIntent(raw) {
   const player = world.player;
   const intent = {
@@ -298,20 +274,21 @@ function buildIntent(raw) {
   };
 
   if (raw.aimStick !== null) {
-    intent.aimAngle = assistAim(raw.aimStick, true);
+    intent.aimAngle = assistAim(world, raw.aimStick, AIM_CONE.stick);
   } else if (raw.aimKeys) {
-    /* Стрелки дают восемь направлений — помощь прицела дотягивает до цели. */
-    intent.aimAngle = assistAim(Math.atan2(raw.aimKeys.y, raw.aimKeys.x), true);
+    intent.aimAngle = assistAim(world, Math.atan2(raw.aimKeys.y, raw.aimKeys.x), AIM_CONE.keys);
   } else if (!raw.touch && raw.mouse.moved) {
     const worldX = lastView.camX + (raw.mouse.x - canvas.clientWidth / 2) / lastView.zoom;
     const worldY = lastView.camY + (raw.mouse.y - canvas.clientHeight / 2) / lastView.zoom;
-    intent.aimAngle = assistAim(Math.atan2(worldY - player.y, worldX - player.x), false);
+    intent.aimAngle = assistAim(world, Math.atan2(worldY - player.y, worldX - player.x), AIM_CONE.mouse);
   } else if (raw.moveX || raw.moveY) {
     /*
      * Ни мыши, ни стрелок — целимся туда, куда бежим, и доводим до цели.
      * Это и есть игра «чисто с кнопок»: одной рукой на WASD и пробеле.
      */
-    intent.aimAngle = assistAim(Math.atan2(raw.moveY, raw.moveX), true);
+    intent.aimAngle = assistAim(world, Math.atan2(raw.moveY, raw.moveX), AIM_CONE.run);
+  } else {
+    intent.aimAngle = closeThreat(world);
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */
@@ -325,31 +302,16 @@ function buildIntent(raw) {
    * уходит в стену за две секунды.
    */
   if (!intent.attack && raw.aimStick !== null && intent.aimAngle !== null) {
-    intent.attack = hasTargetUnderAim(intent.aimAngle);
+    intent.attack = hasTargetUnderAim(world, intent.aimAngle);
+  }
+
+  if (intent.attack) {
+    const snapped = meleeSnap(world, intent.aimAngle === null ? player.angle : intent.aimAngle);
+    if (snapped !== null) intent.aimAngle = snapped;
   }
 
   return intent;
 }
-
-function hasTargetUnderAim(angle) {
-  const player = world.player;
-  const weapon = WEAPONS[player.weapon];
-  const range = weapon.kind === 'gun' ? 360 : weapon.reach + 12;
-  const spread = weapon.kind === 'gun' ? 0.2 : weapon.arc / 2;
-
-  for (const enemy of world.enemies) {
-    if (!enemy.alive) continue;
-    const dx = enemy.x - player.x;
-    const dy = enemy.y - player.y;
-    if (Math.hypot(dx, dy) > range) continue;
-    if (Math.abs(angleDelta(angle, Math.atan2(dy, dx))) > spread) continue;
-    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
-    return true;
-  }
-
-  return false;
-}
-
 
 /* =========================================================
    HUD

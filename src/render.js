@@ -283,6 +283,8 @@ export function createRenderer(canvas) {
     camX = worldW <= halfW * 2 ? worldW / 2 : Math.max(halfW, Math.min(worldW - halfW, camX));
     camY = worldH <= halfH * 2 ? worldH / 2 : Math.max(halfH, Math.min(worldH - halfH, camY));
 
+    /* Короткий наезд на попадании: кадр «клюёт» вперёд и возвращается. */
+    const punch = 1 + world.fx.punch * 0.035;
     const shake = world.fx.shake;
     const shakeX = shake ? (Math.random() - 0.5) * shake : 0;
     const shakeY = shake ? (Math.random() - 0.5) * shake : 0;
@@ -293,7 +295,7 @@ export function createRenderer(canvas) {
 
     ctx.save();
     ctx.translate(viewW / 2, viewH / 2);
-    ctx.scale(zoom, zoom);
+    ctx.scale(zoom * punch, zoom * punch);
     ctx.translate(-camX + shakeX, -camY + shakeY);
 
     ctx.imageSmoothingEnabled = false;
@@ -309,6 +311,7 @@ export function createRenderer(canvas) {
     drawEnemies(ctx, world);
     drawPlayer(ctx, world);
     drawBullets(ctx, world);
+    drawPops(ctx, world);
     drawParticles(ctx, world);
     ctx.drawImage(walls, 0, 0);
 
@@ -464,6 +467,16 @@ export function createRenderer(canvas) {
         g.globalAlpha = 0.85;
         body(g, enemy.x, enemy.y, enemy.angle + 1.4, palette, { lean: 4 });
         g.restore();
+
+        if (enemy.hitFlash > 0) {
+          g.save();
+          g.globalAlpha = Math.min(1, enemy.hitFlash * 6);
+          g.fillStyle = '#ffffff';
+          g.beginPath();
+          g.ellipse(enemy.x, enemy.y, BODY + 3, BODY + 2, 0, 0, 6.29);
+          g.fill();
+          g.restore();
+        }
         g.fillStyle = '#ffe06b';
         g.font = 'bold 9px ui-monospace, monospace';
         g.fillText('!', enemy.x - 2, enemy.y - 15);
@@ -475,6 +488,17 @@ export function createRenderer(canvas) {
         swing: enemy.swing || 0,
         windup: enemy.windup || 0,
       });
+
+      /* Достали — тело на пару кадров белеет целиком. */
+      if (enemy.hitFlash > 0) {
+        g.save();
+        g.globalAlpha = Math.min(1, enemy.hitFlash * 6);
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.ellipse(enemy.x, enemy.y, BODY + 3, BODY + 2, 0, 0, 6.29);
+        g.fill();
+        g.restore();
+      }
 
       /* Замах — единственное предупреждение, и оно должно быть заметным. */
       if (enemy.windup > 0.05) {
@@ -503,12 +527,31 @@ export function createRenderer(canvas) {
       swing: player.swing,
     });
 
+    /*
+     * Дуга удара прочерчивается по ходу замаха, а не висит целиком: так
+     * видно и что удар состоялся, и куда он пришёлся. Попадание заливает
+     * сектор белым, промах остаётся тонкой линией.
+     */
     if (player.swing > 0 && WEAPONS[player.weapon].kind === 'melee') {
       const weapon = WEAPONS[player.weapon];
-      g.strokeStyle = `rgba(255,255,255,${player.swing * 4})`;
-      g.lineWidth = 3;
+      const done = Math.min(1, 1 - player.swing / 0.16);
+      const from = player.angle - weapon.arc / 2;
+      const to = from + weapon.arc * done;
+      const hit = player.swingHit > 0;
+
       g.beginPath();
-      g.arc(player.x, player.y, weapon.reach, player.angle - weapon.arc / 2, player.angle + weapon.arc / 2);
+      g.moveTo(player.x, player.y);
+      g.arc(player.x, player.y, weapon.reach, from, to);
+      g.closePath();
+      g.fillStyle = hit ? `rgba(255,255,255,${player.swingHit * 1.6})` : 'rgba(255,255,255,.07)';
+      g.fill();
+
+      g.strokeStyle = hit
+        ? `rgba(255,255,255,${Math.min(0.95, player.swingHit * 5)})`
+        : `rgba(255,255,255,${player.swing * 3})`;
+      g.lineWidth = hit ? 4 : 2;
+      g.beginPath();
+      g.arc(player.x, player.y, weapon.reach, from, to);
       g.stroke();
     }
 
@@ -532,6 +575,17 @@ export function createRenderer(canvas) {
       g.fillRect(-22, -0.5, 16, 1);
       g.restore();
       g.globalAlpha = 1;
+    }
+  }
+
+  function drawPops(g, world) {
+    for (const ring of world.pops) {
+      const t = 1 - ring.life / ring.span;
+      g.strokeStyle = `rgba(${ring.colour},${(1 - t) * 0.9})`;
+      g.lineWidth = 3 * (1 - t) + 1;
+      g.beginPath();
+      g.arc(ring.x, ring.y, ring.r + (ring.max - ring.r) * t, 0, 6.29);
+      g.stroke();
     }
   }
 
