@@ -93,6 +93,9 @@ const SFX_BY_EVENT = {
   glass: 'glass',
   spot: 'spot',
   cleared: 'exit',
+  chain: 'chain',
+  ignite: 'ignite',
+  doused: 'doused',
 };
 
 let levelIndex = 0;
@@ -520,6 +523,15 @@ function drainEvents() {
       setToast('ВСПЫШКА В ТЕСНОТЕ — СВОИМ ЖЕ', 2.4);
     } else if (event.type === 'resist') {
       setToast(`${ELEMENTS[event.element].name} ЕГО НЕ БЕРЁТ — БЕЙ ДРУГИМ`, 1.8);
+    } else if (event.type === 'ignite' && event.player) {
+      /* У горящего есть полсекунды и один выход — вода. Сказать об этом
+         надо ровно один раз и ровно тогда, а не в подсказках перед боем. */
+      setToast('ГОРИШЬ — В ВОДУ ИЛИ В ГРЯЗЬ', 1.4);
+      vibrate(20);
+    } else if (event.type === 'shocked-self') {
+      setToast('СВОЯ ЖЕ ЛУЖА ПОД ТОКОМ', 2.4);
+    } else if (event.type === 'chain' && event.size > 1) {
+      setToast(`ЦЕПЬ ПО ВОДЕ — ${event.size}`, 1.4);
     }
 
     if (event.type === 'kill') {

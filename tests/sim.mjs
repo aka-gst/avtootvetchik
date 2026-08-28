@@ -20,6 +20,9 @@ import { blocksMove } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
+import {
+  GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH,
+} from '../src/field.js';
 
 const DT = 1 / 60;
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
@@ -505,6 +508,130 @@ function cast(world, stack, angle) {
   check('шаг мира укладывается в бюджет кадра', perFrame < 1.2,
     `${perFrame.toFixed(3)} мс на кадр при всех врагах в погоне`);
 }
+
+/* --- F. Встреча веществ: та самая таблица, которую нельзя проверить глазом --- */
+{
+  const world = createWorld(CAMPAIGN[0]);
+  const open = { x: world.player.x + TILE_SIZE * 4, y: world.player.y };
+  const spot = (substance, r = TILE_SIZE) =>
+    paint(world, tilesInCircle(world, open.x, open.y, r), substance, { ...open, r });
+
+  spot(substanceOf(['fire']));
+  check('одна стихия своего не оставляет',
+    groundAt(world, open.x, open.y) === GROUND.NONE);
+
+  spot(substanceOf(['fire', 'wind']));
+  check('смесь оставляет вещество',
+    groundAt(world, open.x, open.y) === GROUND.FIRE);
+
+  spot(substanceOf(['water']));
+  check('чистой воды хватает, чтобы потушить',
+    groundAt(world, open.x, open.y) === GROUND.NONE);
+
+  spot(substanceOf(['water', 'earth']));
+  check('грязь ложится', groundAt(world, open.x, open.y) === GROUND.MUD);
+  spot(substanceOf(['fire', 'wind']));
+  check('грязь не горит — единственное укрытие от чужого огня',
+    groundAt(world, open.x, open.y) === GROUND.MUD);
+
+  spot(substanceOf(['water', 'bolt']));
+  check('разряд стелет свою лужу', groundAt(world, open.x, open.y) === GROUND.WATER);
+  spot(substanceOf(['water', 'wind']));
+  check('мороз превращает лужу в лёд', groundAt(world, open.x, open.y) === GROUND.ICE);
+
+  const cloudsBefore = world.clouds.length;
+  spot(substanceOf(['fire']));
+  check('огонь топит лёд обратно в лужу',
+    groundAt(world, open.x, open.y) === GROUND.WATER);
+  check('над растопленным поднимается пар', world.clouds.length > cloudsBefore);
+}
+
+/* --- G. Поле в бою --- */
+{
+  /* Цепь. Ради неё вода и заведена: лужа, налитая заранее, превращает
+     одиночный разряд в оружие по площади. */
+  function chainRun(withPuddle) {
+    const world = createWorld(CAMPAIGN[0]);
+    const player = world.player;
+    const [a, b] = world.enemies;
+
+    /* Двое рядом, игрок поодаль и вне лужи. */
+    a.x = player.x + TILE_SIZE * 5; a.y = player.y;
+    a.state = 'idle'; a.resist = null;
+    b.x = a.x + TILE_SIZE * 1.6; b.y = a.y;
+    b.state = 'idle'; b.resist = null;
+    for (const rest of world.enemies.slice(2)) { rest.alive = false; }
+
+    if (withPuddle) {
+      const mid = { x: (a.x + b.x) / 2, y: a.y };
+      paint(world, tilesInCircle(world, mid.x, mid.y, TILE_SIZE * 2),
+        substanceOf(['water', 'bolt']), mid);
+    }
+
+    cast(world, ['bolt'], 0);
+    run(world, 0.6);
+    return { a, b };
+  }
+
+  const dry = chainRun(false);
+  check('без лужи разряд достаёт только того, в кого целились',
+    !dry.a.alive && dry.b.alive, `первый=${dry.a.alive} второй=${dry.b.alive}`);
+
+  const wet = chainRun(true);
+  check('по луже разряд достаёт и того, в кого не целились',
+    !wet.a.alive && !wet.b.alive, `первый=${wet.a.alive} второй=${wet.b.alive}`);
+
+  /* Огонь не убивает мгновенно: у горящего есть выход, и это единственное,
+     ради чего игрок вообще носит воду. */
+  const world = createWorld(CAMPAIGN[0]);
+  const enemy = world.enemies[0];
+  enemy.state = 'idle';
+  enemy.resist = null;
+  const fire = { x: world.player.x + TILE_SIZE * 4, y: world.player.y };
+  const pool = { x: fire.x + TILE_SIZE * 3, y: fire.y };
+  paint(world, tilesInCircle(world, fire.x, fire.y, TILE_SIZE), substanceOf(['fire', 'wind']), fire);
+  paint(world, tilesInCircle(world, pool.x, pool.y, TILE_SIZE), substanceOf(['water', 'bolt']), pool);
+
+  enemy.x = fire.x; enemy.y = fire.y;
+  run(world, FIRE_CATCH + 0.1);
+  check('на разгоревшемся полу тело занимается', enemy.burning > 0 && enemy.alive,
+    `горит=${(enemy.burning || 0).toFixed(2)}`);
+
+  enemy.x = pool.x; enemy.y = pool.y;
+  run(world, 0.05);
+  check('лужа тушит горящего', enemy.alive && !enemy.burning);
+
+  /* Пар прячет — единственное, что умеет вещество без смертельной черты. */
+  const misty = createWorld(CAMPAIGN[0]);
+  const near = misty.enemies[0];
+  near.x = misty.player.x + TILE_SIZE * 3;
+  near.y = misty.player.y;
+  check('без пара видно', hasSight(misty, misty.player.x, misty.player.y, near.x, near.y));
+  addCloud(misty, (misty.player.x + near.x) / 2, misty.player.y, TILE_SIZE * 1.6, 'steam');
+  check('за паром не видно',
+    !hasSight(misty, misty.player.x, misty.player.y, near.x, near.y));
+
+  /* Пол под ногами решает темп: грязь вязнет, лёд разгоняет и не держит. */
+  function pace(ground) {
+    const w = createWorld(CAMPAIGN[0]);
+    if (ground) {
+      paint(w, tilesInCircle(w, w.player.x, w.player.y, TILE_SIZE * 3), ground,
+        { x: w.player.x, y: w.player.y });
+    }
+    for (let i = 0; i < 12; i += 1) update(w, DT, { ...idle, moveX: 1 });
+    return Math.hypot(w.player.vx, w.player.vy);
+  }
+
+  const clean = pace(null);
+  const mud = pace(substanceOf(['water', 'earth']));
+  check('в грязи идёшь медленнее', mud < clean * 0.7,
+    `${Math.round(mud)} против ${Math.round(clean)}`);
+
+  const ice = pace(substanceOf(['water', 'wind']));
+  check('на льду разгоняешься дольше', ice < clean,
+    `${Math.round(ice)} против ${Math.round(clean)}`);
+}
+
 
 console.log(report.join('\n'));
 console.log(failures ? `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}` : '\nвсе проверки прошли');

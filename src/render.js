@@ -13,6 +13,7 @@
  */
 
 import { TILE } from './level.js';
+import { GROUND, FIRE_CATCH } from './field.js';
 import { TILE_SIZE, BODY, WEAPONS } from './world.js';
 import { colourOf, CHARGE_STEP } from './magic.js';
 
@@ -365,6 +366,7 @@ export function createRenderer(canvas) {
     ctx.drawImage(baked, 0, 0);
 
     drawExit(ctx, world);
+    drawGround(ctx, world);
     drawDecals(ctx, world);
     drawCorpses(ctx, world);
     drawCasings(ctx, world);
@@ -377,6 +379,7 @@ export function createRenderer(canvas) {
     drawBlasts(ctx, world);
     drawPops(ctx, world);
     drawParticles(ctx, world);
+    drawClouds(ctx, world);
     ctx.drawImage(walls, 0, 0);
 
     ctx.restore();
@@ -412,6 +415,105 @@ export function createRenderer(canvas) {
         g.lineWidth = 2;
         g.strokeRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
       }
+    }
+  }
+
+  /*
+   * Поле рисуется клетками, а не пятнами, и это сознательно: игрок должен
+   * видеть ровно ту сетку, по которой считаются правила. Красивая мягкая
+   * лужа врала бы о своих краях — а по краю тут проходит разница между
+   * «цепь достала» и «не достала».
+   */
+  function drawGround(g, world) {
+    if (!world.ground) return;
+
+    for (let i = 0; i < world.ground.length; i += 1) {
+      const kind = world.ground[i];
+      if (!kind) continue;
+
+      const x = (i % world.w) * TILE_SIZE;
+      const y = ((i / world.w) | 0) * TILE_SIZE;
+
+      /* Догорающее и подсыхающее гаснет: у поля должен быть виден срок. */
+      const fade = Math.min(1, world.groundLife[i] / 2);
+
+      if (kind === GROUND.FIRE) {
+        /*
+         * Огонь рисуется на сложение, а не поверх. Первая версия клала
+         * оранжевый с прозрачностью — на фиолетовом полу он давал ровно тот
+         * же коричневый, что и грязь, и два вещества, из которых одно
+         * убивает, а другое нет, выглядели одинаково. Свет складывается с
+         * любым полом и остаётся огнём на всех темах.
+         */
+        const caught = Math.min(1, world.groundAge[i] / FIRE_CATCH);
+        const flicker = 0.75 + Math.random() * 0.25;
+
+        g.save();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = `rgba(255,${60 + Math.round(caught * 40)},10,${(0.3 + caught * 0.45) * fade * flicker})`;
+        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+
+        /* Жёлтое ядро — только у разгоревшегося: по нему и видно, что уже жжёт. */
+        if (caught >= 1) {
+          g.fillStyle = `rgba(255,190,60,${0.3 * flicker * fade})`;
+          g.fillRect(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+        }
+        g.restore();
+        continue;
+      }
+
+      if (kind === GROUND.WATER) {
+        g.fillStyle = `rgba(20,80,140,${0.55 * fade})`;
+        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        g.save();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = `rgba(40,150,220,${0.3 * fade})`;
+        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        g.restore();
+        continue;
+      }
+
+      if (kind === GROUND.ICE) {
+        /* Лёд — самое светлое на экране: он не убивает, и пугать им нечестно. */
+        g.fillStyle = `rgba(198,240,255,${0.45 * fade})`;
+        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        g.strokeStyle = `rgba(255,255,255,${0.45 * fade})`;
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(x + 4, y + TILE_SIZE - 6);
+        g.lineTo(x + TILE_SIZE - 8, y + 5);
+        g.stroke();
+        continue;
+      }
+
+      if (kind === GROUND.MUD) {
+        /* Грязь тусклая и глухая — противоположность огню по свету. */
+        g.fillStyle = `rgba(58,48,26,${0.72 * fade})`;
+        g.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      }
+    }
+  }
+
+  /* Пар и пыль — единственное, что рисуется поверх тел: они их и прячут. */
+  function drawClouds(g, world) {
+    if (!world.clouds) return;
+
+    for (const cloud of world.clouds) {
+      const fade = Math.min(1, cloud.life / cloud.span);
+      const r = cloud.r * (1 + (1 - fade) * 0.5);
+      const dust = cloud.kind === 'dust';
+
+      /* Мягкий край, а не диск: у облака нет границы, и края у него быть
+         не должно — иначе видно, где кончается «не видно». */
+      const grad = g.createRadialGradient(cloud.x, cloud.y, r * 0.15, cloud.x, cloud.y, r);
+      const core = dust ? '190,168,120' : '214,232,244';
+      grad.addColorStop(0, `rgba(${core},${0.5 * fade})`);
+      grad.addColorStop(0.6, `rgba(${core},${0.32 * fade})`);
+      grad.addColorStop(1, `rgba(${core},0)`);
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(cloud.x, cloud.y, r, 0, 6.29);
+      g.fill();
     }
   }
 
@@ -498,9 +600,35 @@ export function createRenderer(canvas) {
     }
   }
 
+  /*
+   * Состояние тела важнее его вида: мокрый — это «бей молнией», горящий —
+   * «он уже труп, займись другим». Обе метки читаются издалека и одним
+   * цветом, потому что решение по ним принимают за долю секунды.
+   */
+  function drawState(g, world, body_) {
+    if (body_.burning > 0) {
+      const flicker = 0.6 + Math.random() * 0.4;
+      g.fillStyle = `rgba(255,120,40,${0.45 * flicker})`;
+      g.beginPath();
+      g.arc(body_.x, body_.y, BODY + 5 + Math.random() * 3, 0, 6.29);
+      g.fill();
+      return;
+    }
+
+    if (body_.wet > 0) {
+      g.strokeStyle = `rgba(120,220,255,${0.25 + Math.min(1, body_.wet / 3) * 0.4})`;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(body_.x, body_.y, BODY + 3, 0, 6.29);
+      g.stroke();
+    }
+  }
+
   function drawEnemies(g, world) {
     for (const enemy of world.enemies) {
       if (!enemy.alive) continue;
+
+      drawState(g, world, enemy);
 
       const palette = PALETTE[enemy.kind] || PALETTE.thug;
 
@@ -601,6 +729,8 @@ export function createRenderer(canvas) {
   function drawPlayer(g, world) {
     const player = world.player;
     if (!player.alive) return;
+
+    drawState(g, world, player);
 
     /* Демон в руке — не оружие, поэтому в руках у игрока пусто. */
     body(g, player.x, player.y, player.angle, PALETTE.player, {

@@ -15,6 +15,7 @@
 
 import { TILE_SIZE, BODY, WEAPONS, angleDelta, turnToward, clamp, hasSight, emitNoise, tileIndex } from './world.js';
 import { blocksMove } from './level.js';
+import { burningIndex } from './field.js';
 
 const SIGHT_RANGE = 300;
 const SIGHT_HALF = 0.95;   /* половина конуса, ~110° целиком */
@@ -57,7 +58,13 @@ export function buildFlowField(world, x, y) {
       const ny = ay + NEIGHBOURS[i][1];
       if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
       const idx = ny * world.w + nx;
-      if (field[idx] !== -1 || blocksMove(world.tiles[idx])) continue;
+      /*
+       * Разгоревшийся пол для волны — та же стена. Без этого враги идут в
+       * огонь по кратчайшей и умирают там пачками: этаж зачищает себя сам,
+       * а пожар из инструмента превращается в кнопку «победить». Пусть
+       * лучше стоят по ту сторону и ждут, пока прогорит.
+       */
+      if (field[idx] !== -1 || blocksMove(world.tiles[idx]) || burningIndex(world, idx)) continue;
       field[idx] = next;
       queue[tail++] = idx;
     }

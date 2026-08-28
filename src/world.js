@@ -13,11 +13,17 @@
  * врагов оружие осталось: бита и пистолет — это их роль, а не инвентарь.
  */
 
-import { TILE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
+import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
+import {
+  GROUND, createField, updateField, groundAt, groundIndex, burningAt,
+  paint, tilesInCircle, tilesInCone, tilesAlongLine,
+  conductedTiles, conducts, cloudsBlock, addCloud,
+  BURN_TIME, WET_TIME, CHAIN_HOP,
+} from './field.js';
 import { spellOf, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './magic.js';
 
-export const TILE_SIZE = 32;
+export { TILE_SIZE };
 
 /* Радиус тела одинаков у всех: попадание должно читаться на глаз. */
 export const BODY = 9;
@@ -137,7 +143,14 @@ export function hasSight(world, ax, ay, bx, by) {
     const t = i / steps;
     if (blocksSight(tileAt(world, ax + dx * t, ay + dy * t))) return false;
   }
-  return true;
+
+  /*
+   * Пар и пыль прячут всех одинаково — и врагов от игрока тоже. Одна
+   * дверь на всё зрение: конус врага, наводка, выдох и вспышка ходят
+   * через неё же, поэтому «за паром не видно» не приходится помнить в
+   * пяти местах, и своим же паром можно ослепить себя.
+   */
+  return !cloudsBlock(world, ax, ay, bx, by);
 }
 
 
@@ -338,6 +351,7 @@ export function createWorld(level) {
        поэтому они просто пропускаются: чужой код всё равно откроется. */
   }
 
+  createField(world);
   world.flow = buildFlowField(world, world.player.x, world.player.y);
   return world;
 }
@@ -467,12 +481,14 @@ function swingMelee(world, attacker, from) {
  * Через эту дверь проходят все смертельные пути — удар, чужая порча,
  * форма демона, — иначе правило однажды забыли бы в одном из них.
  */
-export function resisted(world, enemy, angle, source = {}) {
+export function resists(enemy, elements) {
   if (!enemy.resist) return false;
+  if (!elements || !elements.length) return false; /* железо стойкость не разбирает */
+  return elements.every((element) => element === enemy.resist);
+}
 
-  const elements = source.elements || [];
-  if (!elements.length) return false;              /* железо стойкость не разбирает */
-  if (elements.some((element) => element !== enemy.resist)) return false;
+export function resisted(world, enemy, angle, source = {}) {
+  if (!resists(enemy, source.elements)) return false;
 
   enemy.hitFlash = 0.12;
   enemy.blocked = 0.3;
@@ -645,6 +661,12 @@ function castCone(world, spell, angle) {
     reach: form.reach, arc: form.arc,
     life: 0.2, span: 0.2, colour: substance.colour,
   });
+
+  land(world, tilesInCone(world, player.x, player.y, angle, form.reach, form.arc), substance, {
+    x: player.x + Math.cos(angle) * form.reach * 0.6,
+    y: player.y + Math.sin(angle) * form.reach * 0.6,
+    r: form.reach * 0.55,
+  });
 }
 
 function castBeam(world, spell, angle) {
@@ -686,6 +708,18 @@ function castBeam(world, spell, angle) {
     y2: player.y + Math.sin(angle) * distance,
     life: 0.26, span: 0.26, colour: substance.colour,
   });
+
+  /* Полоса начинается на шаг вперёд: луч огня, кладущий пожар себе под
+     ноги, наказывал бы за самую очевидную очередь из трёх одинаковых. */
+  const from = 26;
+  if (distance > from) {
+    land(world,
+      tilesAlongLine(world,
+        player.x + Math.cos(angle) * from, player.y + Math.sin(angle) * from,
+        player.x + Math.cos(angle) * distance, player.y + Math.sin(angle) * distance),
+      substance,
+      { x: player.x + Math.cos(angle) * distance, y: player.y + Math.sin(angle) * distance });
+  }
 }
 
 /*
@@ -714,6 +748,9 @@ function castNova(world, spell) {
     kind: 'nova', x: player.x, y: player.y,
     radius: form.radius, life: 0.3, span: 0.3, colour: '#ffffff', tint: substance.colour,
   });
+
+  land(world, tilesInCircle(world, player.x, player.y, form.radius), substance,
+    { x: player.x, y: player.y, r: form.radius * 0.8 });
 
   /*
    * Отражение считается по соседним клеткам, а не лучами: восемь соседей
@@ -748,6 +785,122 @@ function castNova(world, spell) {
 
 
 /* =========================================================
+   СЛЕД ВЕЩЕСТВА
+   =========================================================
+   Заклинание не заканчивается попаданием. Всё, что вещество
+   умеет после — лужа, пожар, лёд, пар, разряд по воде, —
+   собрано здесь, а сами правила встречи живут в field.js.
+   ========================================================= */
+
+/*
+ * Вещество ложится на пол там, где форма закончилась. Точку даёт форма,
+ * потому что только она знает, где закончилась: снаряд — где упал, выдох —
+ * по всему конусу, луч — вдоль линии.
+ */
+function land(world, tiles, substance, at) {
+  paint(world, tiles, substance, at);
+  if (substance.traits.shock && at) discharge(world, at.x, at.y, substance);
+}
+
+/*
+ * Разряд по воде. Сначала под током оказывается вся связная лужа, потом
+ * ток перескакивает на мокрых рядом и с них дальше.
+ *
+ * Своих цепь не разбирает — как и вспышка. Стоять в собственной луже,
+ * пуская в неё молнию, это ровно то решение, за которое игра обязана
+ * спросить: иначе «намочи и ударь» превратилось бы в бесплатную кнопку.
+ */
+function discharge(world, x, y, substance) {
+  const live = conductedTiles(world, x, y);
+  const bodies = [world.player, ...world.enemies].filter((body) => body.alive);
+  const hit = new Set();
+  const queue = [{ x, y }];
+
+  for (const body of bodies) {
+    if (live.has(groundIndex(world, body.x, body.y))) { hit.add(body); queue.push(body); }
+  }
+
+  while (queue.length) {
+    const from = queue.shift();
+    for (const body of bodies) {
+      if (hit.has(body) || !conducts(world, body)) continue;
+      if (Math.hypot(body.x - from.x, body.y - from.y) > CHAIN_HOP) continue;
+      hit.add(body);
+      queue.push(body);
+    }
+  }
+
+  if (!hit.size) return;
+
+  for (const body of hit) {
+    const angle = Math.atan2(body.y - y, body.x - x);
+    if (body === world.player) {
+      world.events.push({ type: 'shocked-self' });
+      killPlayer(world, angle);
+      continue;
+    }
+    if (resisted(world, body, angle, { elements: substance.elements })) continue;
+    killEnemy(world, body, angle, 'chain',
+      { by: 'player', weapon: 'daemon', elements: substance.elements });
+  }
+
+  world.events.push({ type: 'chain', size: hit.size });
+  world.fx.flash = Math.max(world.fx.flash, 0.2);
+}
+
+/*
+ * Что пол делает с телом. Лёд не убивает, но отнимает управление —
+ * поэтому он ценен обеим сторонам: по нему одинаково несёт и врага, и
+ * того, кто его настелил.
+ */
+function footing(world, body) {
+  const ground = groundAt(world, body.x, body.y);
+  if (ground === GROUND.MUD) return { pace: 0.55, grip: 1 };
+  if (ground === GROUND.ICE) return { pace: 1.12, grip: 0.16 };
+  return { pace: 1, grip: 1 };
+}
+
+/*
+ * Мокрое и горящее. Огонь не убивает мгновенно: горящий бежит и умирает
+ * на бегу, и всё это время у него есть выход — лужа. Мгновенная смерть от
+ * пола была бы честнее по букве правила «все умирают с одного касания», но
+ * отняла бы у воды единственное применение, ради которого её набирают.
+ */
+function scorch(world, body, dt) {
+  body.wet = Math.max(0, (body.wet || 0) - dt);
+
+  const ground = groundAt(world, body.x, body.y);
+
+  if (ground === GROUND.WATER || ground === GROUND.MUD) {
+    body.wet = WET_TIME;
+    if (body.burning > 0) {
+      body.burning = 0;
+      addCloud(world, body.x, body.y, TILE_SIZE, 'steam');
+      world.events.push({ type: 'doused' });
+    }
+  }
+
+  /* Стойкий к огню в огне не горит: это та же стойкость, просто пол. */
+  if (!body.burning && !body.wet && burningAt(world, body.x, body.y)
+      && !resists(body, ['fire'])) {
+    body.burning = BURN_TIME;
+    world.events.push({ type: 'ignite', player: body === world.player });
+  }
+
+  if (body.burning > 0) {
+    body.burning -= dt;
+    if (body.burning <= 0) {
+      body.burning = 0;
+      const angle = Math.random() * Math.PI * 2;
+      if (body === world.player) killPlayer(world, angle);
+      else killEnemy(world, body, angle, 'fire',
+        { by: 'player', weapon: 'daemon', elements: ['fire'] });
+    }
+  }
+}
+
+
+/* =========================================================
    ШАГ МИРА
    ========================================================= */
 
@@ -766,6 +919,7 @@ export function update(world, dt, intent) {
 
   if (world.state === 'play') world.time += dt;
 
+  updateField(world, dt);
   updatePlayer(world, dt, intent);
 
   world.flowTimer -= dt;
@@ -799,15 +953,20 @@ function updatePlayer(world, dt, intent) {
    * ставка, ради которой очередь вообще нужна: чем длиннее, тем дольше
    * стоишь на виду.
    */
-  const pace = player.windup > 0 ? 0.35 : (player.chargeLeft > 0 ? 0.55 : 1);
+  const stand = footing(world, player);
+  scorch(world, player, dt);
+  if (!player.alive) return;
+
+  const pace = (player.windup > 0 ? 0.35 : (player.chargeLeft > 0 ? 0.55 : 1)) * stand.pace;
   const speed = PLAYER_SPEED * pace;
 
   const wish = Math.hypot(intent.moveX, intent.moveY);
   const targetX = wish > 0.001 ? (intent.moveX / Math.max(1, wish)) * speed : 0;
   const targetY = wish > 0.001 ? (intent.moveY / Math.max(1, wish)) * speed : 0;
 
-  player.vx += clamp(targetX - player.vx, -PLAYER_ACCEL * dt, PLAYER_ACCEL * dt);
-  player.vy += clamp(targetY - player.vy, -PLAYER_ACCEL * dt, PLAYER_ACCEL * dt);
+  const accel = PLAYER_ACCEL * stand.grip;
+  player.vx += clamp(targetX - player.vx, -accel * dt, accel * dt);
+  player.vy += clamp(targetY - player.vy, -accel * dt, accel * dt);
 
   moveBody(world, player, player.vx * dt, player.vy * dt);
 
@@ -925,10 +1084,15 @@ function updateEnemy(world, enemy, dt) {
     return;
   }
 
-  const move = thinkEnemy(world, enemy, dt, { walk: ENEMY_WALK, run: ENEMY_RUN });
+  const stand = footing(world, enemy);
+  scorch(world, enemy, dt);
+  if (!enemy.alive) return;
 
-  enemy.vx = lerp(enemy.vx, move.vx, clamp(dt * 9, 0, 1));
-  enemy.vy = lerp(enemy.vy, move.vy, clamp(dt * 9, 0, 1));
+  const move = thinkEnemy(world, enemy, dt,
+    { walk: ENEMY_WALK * stand.pace, run: ENEMY_RUN * stand.pace });
+
+  enemy.vx = lerp(enemy.vx, move.vx, clamp(dt * 9 * stand.grip, 0, 1));
+  enemy.vy = lerp(enemy.vy, move.vy, clamp(dt * 9 * stand.grip, 0, 1));
   moveBody(world, enemy, enemy.vx * dt, enemy.vy * dt);
 
   /* Тела расталкиваются, иначе толпа слипается в одну точку. */
@@ -1026,6 +1190,19 @@ function updateBullets(world, dt) {
     }
 
     bullet.life -= dt;
+
+    /*
+     * Снаряд кончился — вещество осталось. Одна дверь на все способы
+     * кончиться (стена, тело, время), иначе половина попаданий не
+     * оставляла бы следа, и правило «вещество живёт после удара»
+     * работало бы через раз.
+     */
+    if (bullet.substance && bullet.life <= 0 && !bullet.landed) {
+      bullet.landed = true;
+      const reach = bullet.substance.traits.reach || 1;
+      land(world, tilesInCircle(world, bullet.x, bullet.y, TILE_SIZE * 0.9 * reach),
+        bullet.substance, { x: bullet.x, y: bullet.y, r: TILE_SIZE * 1.2 });
+    }
   }
 
   world.bullets = world.bullets.filter((b) => b.life > 0);

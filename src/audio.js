@@ -191,6 +191,12 @@ export function createAudio() {
     beamup() { tone('sawtooth', 180, 900, 0.26, 0.22); },
     beam() { tone('sawtooth', 1200, 300, 0.4, 0.4); noise(0.35, 'bandpass', 2400, 0.3, 3); },
     nova() { tone('sine', 320, 40, 0.5, 0.7); noise(0.45, 'lowpass', 1400, 0.6); },
+
+    /* Голоса поля. Цепь трещит, пожар дышит, вода шипит — по звуку должно
+       быть понятно, что случилось, даже если смотришь в другой угол. */
+    chain() { noise(0.24, 'highpass', 2200, 0.5, 5); tone('square', 1500, 180, 0.2, 0.3); },
+    ignite() { noise(0.5, 'lowpass', 900, 0.32, 1); tone('sawtooth', 90, 220, 0.4, 0.18); },
+    doused() { noise(0.42, 'highpass', 3200, 0.3, 2); },
   };
 
   function sfx(name, detail) {
