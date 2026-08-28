@@ -1,0 +1,578 @@
+/*
+ * АВТООТВЕТЧИК — оболочка.
+ *
+ * Игра занимает весь экран, интерфейс лежит поверх холста. Всё, что
+ * можно, сделано на CSS: развёртка, зерно и свечение не должны стоить
+ * кадров, их и так мало на телефоне.
+ */
+
+:root {
+  --ink: #08070d;
+  --acid: #76ff9f;
+  --violet: #bc70ff;
+  --pink: #ff2d95;
+  --amber: #ffe06b;
+  --paper: #f6edff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#screen {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+
+/*
+ * Кнопка возврата. На сайте такая же лежит в общем /game-menu.css, но
+ * игра живёт отдельным репозиторием и обязана открываться сама по себе —
+ * из папки, с флешки, откуда угодно. Двадцать строк дешевле зависимости.
+ */
+.game-home-menu {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 1000;
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--acid);
+  background: #0b1010f2;
+  color: var(--paper);
+  font: 700 10px var(--mono);
+  letter-spacing: .08em;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 0 14px #76ff9f20;
+}
+
+.game-home-menu:hover,
+.game-home-menu:focus-visible {
+  background: #153725;
+  color: #fff;
+  outline: 2px solid var(--violet);
+  outline-offset: 3px;
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .game-home-menu { padding: 8px 10px; }
+}
+
+
+/* =========================================================
+   ПЛЁНКА
+   ========================================================= */
+
+.grain, .sweep {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.grain {
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(0, 0, 0, .22) 0 1px,
+    rgba(0, 0, 0, 0) 1px 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: .55;
+}
+
+/* Одна полоса, медленно ползущая сверху вниз, — вся «кассетность» кадра. */
+.sweep {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(188, 112, 255, .07) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  height: 38vh;
+  animation: sweep 7.5s linear infinite;
+}
+
+@keyframes sweep {
+  from { transform: translateY(-45vh); }
+  to { transform: translateY(115vh); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep { animation: none; opacity: .35; }
+}
+
+
+/* =========================================================
+   HUD
+   ========================================================= */
+
+.hud {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  /* Справа сверху живёт кнопка «НА САЙТ» — HUD в неё не заезжает. */
+  right: max(112px, env(safe-area-inset-right));
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.hud-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 11px;
+  border: 1px solid #ffffff1c;
+  background: #0b0713cc;
+  backdrop-filter: blur(3px);
+}
+
+.hud-slot b {
+  font: 800 13px/1 var(--mono);
+  letter-spacing: .1em;
+  color: var(--acid);
+}
+
+.hud-label {
+  font: 700 8px/1 var(--mono);
+  letter-spacing: .16em;
+  color: #8a7c99;
+}
+
+.hud-score {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-score b { color: var(--paper); }
+
+.ammo {
+  display: flex;
+  gap: 3px;
+  min-height: 7px;
+}
+
+.ammo i {
+  width: 3px;
+  height: 9px;
+  background: var(--amber);
+  box-shadow: 0 0 6px #ffe06b60;
+}
+
+.ammo[data-empty="1"] i { background: #5b4b2a; }
+
+.hud-points {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-points b { color: var(--amber); }
+
+/*
+ * Цепочка убийств. Полоска — не украшение: по ней видно, сколько осталось
+ * до обнуления множителя, а это и есть весь риск в счёте.
+ */
+.combo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 34px;
+  padding: 3px 6px;
+  border: 1px solid var(--pink);
+  background: #2a0a1b;
+  animation: comboPop .18s ease-out;
+}
+
+.combo[hidden] { display: none; }
+
+.combo b {
+  color: var(--pink);
+  font: 900 13px/1 var(--mono);
+}
+
+.combo i {
+  display: block;
+  height: 2px;
+  background: var(--pink);
+  transform-origin: left center;
+}
+
+@keyframes comboPop {
+  from { transform: scale(1.25); }
+  to { transform: scale(1); }
+}
+
+.mute {
+  position: fixed;
+  top: calc(max(10px, env(safe-area-inset-top)) + 44px);
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 1000;
+  padding: 8px 10px;
+  border: 1px solid #ffffff22;
+  background: #0b0713e6;
+  color: #a596b3;
+  font: 700 9px var(--mono);
+  letter-spacing: .1em;
+  cursor: pointer;
+}
+
+.mute[data-off="1"] { color: var(--pink); border-color: #ff2d9555; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(22vh, 140px);
+  z-index: 10;
+  padding: 9px 14px;
+  border-left: 3px solid var(--acid);
+  background: #0b0713e6;
+  color: var(--paper);
+  font: 800 11px var(--mono);
+  letter-spacing: .14em;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   ПАЛЬЦЫ
+   ========================================================= */
+
+.ghost {
+  position: fixed;
+  z-index: 8;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.ghost::before {
+  content: '';
+  position: absolute;
+  left: -46px;
+  top: -46px;
+  width: 92px;
+  height: 92px;
+  border: 1px solid #ffffff20;
+  border-radius: 50%;
+}
+
+.ghost i {
+  position: absolute;
+  left: -17px;
+  top: -17px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--acid);
+  border-radius: 50%;
+  background: #76ff9f1f;
+}
+
+/*
+ * Кнопки стоят столбиком у правой кромки, а не в углу. Угол занят: там
+ * лежит большой палец, который целится плавающим стиком, и кнопка в том
+ * же месте отбирает у него прицел.
+ */
+.pad {
+  position: fixed;
+  right: max(10px, env(safe-area-inset-right));
+  top: 50%;
+  z-index: 9;
+  display: none;
+  grid-auto-flow: row;
+  gap: 9px;
+  justify-items: end;
+  transform: translateY(-50%);
+}
+
+.pad-key {
+  border: 1px solid var(--acid);
+  background: #0b1010cc;
+  color: var(--paper);
+  font: 800 9px var(--mono);
+  letter-spacing: .08em;
+  border-radius: 50%;
+  touch-action: none;
+}
+
+.pad-small {
+  width: 62px;
+  height: 62px;
+}
+
+.pad-big {
+  order: -1;
+  width: 76px;
+  height: 76px;
+  border-width: 2px;
+  border-color: var(--pink);
+  color: var(--pink);
+  font-size: 11px;
+  box-shadow: 0 0 24px #ff2d9525;
+}
+
+.pad-key.is-held {
+  background: #76ff9f28;
+  transform: scale(.94);
+}
+
+/* Кнопки нужны только пальцу: мышь получает тот же ввод с клавиатуры. */
+@media (pointer: coarse) {
+  .pad { display: grid; }
+  .toast { bottom: max(30vh, 190px); }
+}
+
+
+/* =========================================================
+   ЭКРАНЫ МЕЖДУ ПОПЫТКАМИ
+   ========================================================= */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: #05040ad9;
+  backdrop-filter: blur(6px);
+}
+
+.veil[hidden] { display: none; }
+
+.veil-card {
+  width: min(430px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 24px 22px 20px;
+  border: 2px solid var(--acid);
+  background: linear-gradient(150deg, #1a0b28, #0a1512);
+  box-shadow: 10px 10px 0 #05040a, 0 0 44px #76ff9f22;
+}
+
+.veil[data-tone="dead"] .veil-card { border-color: var(--pink); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ff2d9530; }
+.veil[data-tone="clear"] .veil-card { border-color: var(--amber); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ffe06b30; }
+.veil[data-tone="pause"] .veil-card { border-color: var(--violet); box-shadow: 10px 10px 0 #05040a, 0 0 44px #bc70ff30; }
+
+.veil-kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--violet);
+  font: 800 9px var(--mono);
+  letter-spacing: .22em;
+}
+
+.veil h1 {
+  margin: 0 0 12px;
+  font: 900 30px/1 system-ui, -apple-system, sans-serif;
+  letter-spacing: .01em;
+  color: var(--acid);
+  text-transform: uppercase;
+}
+
+.veil[data-tone="dead"] h1 { color: var(--pink); }
+.veil[data-tone="clear"] h1 { color: var(--amber); }
+.veil[data-tone="pause"] h1 { color: var(--violet); }
+
+.veil p {
+  margin: 0 0 16px;
+  color: #cbbbd6;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.veil-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 18px;
+  color: #8a7c99;
+  font: 700 9px var(--mono);
+  letter-spacing: .14em;
+  line-height: 1.5;
+}
+
+.veil-score {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid #ffffff1c;
+  background: #06040c;
+}
+
+.veil-score[hidden] { display: none; }
+
+.veil-score .rank {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.veil-score .rank b {
+  font: 900 46px/1 system-ui, -apple-system, sans-serif;
+  color: var(--amber);
+  text-shadow: 3px 3px 0 #05040a;
+}
+
+.veil-score .rank span {
+  color: #6f6280;
+  font: 800 9px var(--mono);
+  letter-spacing: .2em;
+}
+
+.veil-score[data-rank="S"] .rank b { color: var(--pink); }
+.veil-score[data-rank="A"] .rank b { color: var(--acid); }
+.veil-score[data-rank="D"] .rank b { color: #8a7c99; }
+
+.veil-score ul {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 11px;
+  padding: 0;
+  list-style: none;
+}
+
+.veil-score li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #a596b3;
+  font: 700 10px var(--mono);
+  letter-spacing: .08em;
+}
+
+.veil-score li b { color: var(--paper); font-weight: 800; }
+
+.score-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 9px;
+  border-top: 1px solid #ffffff1c;
+  color: #6f6280;
+  font: 800 9px var(--mono);
+  letter-spacing: .18em;
+}
+
+.score-total b {
+  color: var(--amber);
+  font: 900 22px/1 var(--mono);
+}
+
+.score-best {
+  margin: 9px 0 0;
+  color: #6f6280;
+  font: 700 9px var(--mono);
+  letter-spacing: .12em;
+}
+
+.score-best[data-record="1"] { color: var(--acid); }
+
+.veil-action, .veil-second {
+  width: 100%;
+  min-height: 48px;
+  border: 2px solid var(--acid);
+  background: #16412c;
+  color: #fff;
+  font: 800 12px var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 #05040a;
+}
+
+.veil-second {
+  margin-top: 9px;
+  border-color: #ffffff28;
+  background: transparent;
+  color: #a596b3;
+  box-shadow: none;
+}
+
+.veil-action:hover, .veil-second:hover { background: #1e5c3d; color: #fff; }
+
+.veil-code {
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px dashed #ffffff22;
+  background: #06040c;
+}
+
+.veil-code label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--violet);
+  font: 800 8px var(--mono);
+  letter-spacing: .18em;
+}
+
+.code-row { display: flex; gap: 6px; }
+
+.code-row input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 9px;
+  border: 1px solid #ffffff22;
+  background: #0d0817;
+  color: var(--amber);
+  font: 600 11px var(--mono);
+  outline: none;
+}
+
+.code-row button {
+  padding: 0 12px;
+  border: 1px solid var(--violet);
+  background: #23113a;
+  color: var(--paper);
+  font: 800 9px var(--mono);
+  letter-spacing: .1em;
+  cursor: pointer;
+}
+
+.veil-code small {
+  display: block;
+  margin-top: 7px;
+  color: #6f6280;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+/* Узкий экран: показания уходят в столбик, иначе они не помещаются. */
+@media (max-width: 430px) {
+  .hud { flex-direction: column; }
+  .hud-slot { padding: 6px 9px; }
+  .hud-slot b { font-size: 11px; }
+}
+
+@media (max-height: 520px) {
+  .veil-card { padding: 16px; }
+  .veil h1 { font-size: 22px; }
+  .veil p { margin-bottom: 10px; }
+  .veil-stats { margin-bottom: 12px; }
+}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
+  >
+
+  <meta name="theme-color" content="#08070d">
+  <meta name="description" content="АВТООТВЕТЧИК — быстрый top-down экшен в браузере: с одного удара умирают все. Мышь и клавиатура или два пальца на телефоне.">
+
+  <title>АВТООТВЕТЧИК</title>
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+
+
+<body>
+
+<canvas id="screen"></canvas>
+
+<!-- Развёртка и зерно поверх кадра: холст остаётся чистым, а картинка
+     получает то самое кассетное дрожание. -->
+<div class="grain" aria-hidden="true"></div>
+<div class="sweep" aria-hidden="true"></div>
+
+
+<header class="hud">
+
+  <div class="hud-slot hud-weapon">
+    <b id="weapon">КУЛАКИ</b>
+    <span id="ammo" class="ammo" data-empty="0"></span>
+  </div>
+
+  <div class="hud-slot hud-score">
+    <span class="hud-label">ВЫРЕЗАНО</span>
+    <b id="kills">0/0</b>
+    <span class="hud-label">ВРЕМЯ</span>
+    <b id="clock">0:00.0</b>
+  </div>
+
+  <div class="hud-slot hud-points">
+    <span class="hud-label">СЧЁТ</span>
+    <b id="score">0</b>
+    <!-- Цепочка: полоска показывает, сколько осталось до обнуления. -->
+    <span id="combo" class="combo" hidden><b>×2</b><i></i></span>
+  </div>
+
+</header>
+
+<button type="button" id="mute" class="mute" data-off="0">ЗВУК ВКЛ</button>
+
+<div id="toast" class="toast" hidden></div>
+
+
+<!-- Экранные кнопки. На мыши они не показываются вовсе. -->
+<div id="pad" class="pad" aria-hidden="true">
+  <button type="button" id="btnThrow" class="pad-key pad-small">БРОСИТЬ</button>
+  <button type="button" id="btnPickup" class="pad-key pad-small">ВЗЯТЬ</button>
+  <button type="button" id="btnAttack" class="pad-key pad-big">БИТЬ</button>
+</div>
+
+<div id="ghostMove" class="ghost" hidden><i></i></div>
+<div id="ghostAim" class="ghost" hidden><i></i></div>
+
+
+<section id="veil" class="veil" data-tone="call" hidden>
+
+  <div class="veil-card">
+
+    <span id="veilKicker" class="veil-kicker">СООБЩЕНИЕ</span>
+    <h1 id="veilTitle">АВТООТВЕТЧИК</h1>
+    <p id="veilText"></p>
+
+    <div id="veilStats" class="veil-stats"></div>
+
+    <div id="veilScore" class="veil-score" hidden>
+      <div class="rank"><b id="rankLetter">D</b><span>РАНГ</span></div>
+      <ul id="scoreLines"></ul>
+      <div class="score-total"><span>ИТОГО</span><b id="scoreTotal">0</b></div>
+      <p id="scoreBest" class="score-best"></p>
+    </div>
+
+    <div id="veilCode" class="veil-code" hidden>
+      <label for="codeBox">КОД ЭТАЖА</label>
+      <div class="code-row">
+        <input id="codeBox" type="text" readonly spellcheck="false">
+        <button type="button" id="copyCode">КОПИЯ</button>
+      </div>
+      <small>Уровень целиком лежит в этой строке — сервер ни при чём.</small>
+    </div>
+
+    <button type="button" id="veilAction" class="veil-action">ВЗЯТЬ КЛЮЧИ</button>
+    <button type="button" id="veilSecond" class="veil-second" hidden></button>
+
+  </div>
+
+</section>
+
+
+<a class="game-home-menu" href="https://aka-gst.ru/#games">НА САЙТ</a>
+
+<script type="module" src="src/main.js?v=1"></script>
+
+</body>
+</html>
