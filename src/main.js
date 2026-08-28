@@ -15,6 +15,7 @@ import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, formFor, colourOf } from './daemons.js';
+import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,6 +44,11 @@ const ui = {
   scoreBest: $('scoreBest'),
   score: $('score'),
   combo: $('combo'),
+  target: $('target'),
+  targetTime: $('targetTime'),
+  veilShare: $('veilShare'),
+  nickBox: $('nickBox'),
+  linkBox: $('linkBox'),
   stack: $('stack'),
   form: $('form'),
   mute: $('mute'),
@@ -82,6 +88,7 @@ const SFX_BY_EVENT = {
 
 let levelIndex = 0;
 let custom = false;
+let challenge = null;   /* чужой результат, если этаж открыт по ссылке */
 let level = CAMPAIGN[0];
 let world = null;
 let score = null;
@@ -105,18 +112,51 @@ let attempts = 0;
  * из чужих рук.
  */
 function levelFromHash() {
-  const match = location.hash.match(/^#l=(.+)$/);
-  if (!match) return null;
+  const parsed = parseHash(location.hash);
+  challenge = parsed.challenge;
+  if (!parsed.code) return null;
 
   try {
-    const outside = decode(decodeURIComponent(match[1]));
-    outside.title = 'ЧУЖОЙ ЭТАЖ';
-    outside.call = 'Код прислали снаружи. Кто там внутри — автоответчик не уточнил.';
+    const outside = decode(parsed.code);
+    outside.title = challenge ? 'ВЫЗОВ' : 'ЧУЖОЙ ЭТАЖ';
+    outside.call = challenge
+      ? `${challenge.nick} прошёл этот этаж за ${formatTime(challenge.time)}, ранг ${challenge.rank}. Автоответчик передал вызов — теперь твоя очередь.`
+      : 'Код прислали снаружи. Кто там внутри — автоответчик не уточнил.';
     return outside;
   } catch (error) {
     setToast(`КОД НЕ ОТКРЫЛСЯ: ${error.message}`, 5);
     return null;
   }
+}
+
+
+/* =========================================================
+   ВЫЗОВ
+   ========================================================= */
+
+function readNick() {
+  try {
+    return cleanNick(localStorage.getItem(NICK_KEY) || '');
+  } catch (error) {
+    return '';
+  }
+}
+
+function rememberNick(nick) {
+  try { localStorage.setItem(NICK_KEY, nick); } catch (error) { /* приватный режим */ }
+}
+
+/* Ссылка перестраивается на каждое нажатие в поле имени: подписаться под
+   вызовом должно быть так же дёшево, как его скопировать. */
+function refreshLink() {
+  if (!result) return;
+  const base = location.origin + location.pathname;
+  ui.linkBox.value = buildLink(base, levelCode, {
+    nick: ui.nickBox.value,
+    time: world.time,
+    score: result.total,
+    rank: result.rank,
+  });
 }
 
 
@@ -137,6 +177,12 @@ function showVeil(config) {
 
   ui.veilScore.hidden = !config.result;
   if (config.result) fillScore(config.result, config.best, config.record);
+
+  ui.veilShare.hidden = !config.share;
+  if (config.share) {
+    ui.nickBox.value = readNick();
+    refreshLink();
+  }
   ui.veil.hidden = false;
   ui.veil.dataset.tone = config.tone || 'call';
   audio.setMenu(true);
@@ -246,14 +292,26 @@ function clearScreen() {
   const record = writeBest(levelCode, result, world.time);
   const more = hasNextFloor();
 
+  /* Вызов принят или нет — это первое, что должно быть видно на экране. */
+  const duel = compare({ time: world.time, score: result.total }, challenge);
+  const verdict = duel
+    ? (duel.beaten
+      ? `ВЫЗОВ ПРИНЯТ: БЫСТРЕЕ ${challenge.nick} НА ${formatTime(duel.delta)}`
+      : `${challenge.nick} ВСЁ ЕЩЁ БЫСТРЕЕ НА ${formatTime(duel.delta)}`)
+    : '';
+
   showVeil({
     tone: 'clear',
-    kicker: 'ЭТАЖ СДАН',
-    title: more ? 'СЛЕДУЮЩЕЕ СООБЩЕНИЕ' : 'ТИХО',
-    text: more
-      ? 'Автоответчик уже мигает. Очки платят за темп: цепочка обрывается через четыре секунды без убийства.'
-      : 'Автоответчик молчит. Дальше — только чище и быстрее, чем в прошлый раз.',
-    stats: `<span>ВРЕМЯ ${formatTime(world.time)}</span><span>ПОПЫТОК ${attempts}</span>`,
+    kicker: duel ? (duel.beaten ? 'ВЫЗОВ ОТБИТ' : 'ВЫЗОВ НЕ ВЗЯТ') : 'ЭТАЖ СДАН',
+    title: duel ? (duel.beaten ? 'ТЫ БЫСТРЕЕ' : 'ПОКА МЕДЛЕННЕЕ') : (more ? 'СЛЕДУЮЩЕЕ СООБЩЕНИЕ' : 'ТИХО'),
+    text: duel
+      ? 'Отправь ссылку обратно — в ней твой результат и тот же самый этаж.'
+      : (more
+        ? 'Автоответчик уже мигает. Очки платят за темп: цепочка обрывается через четыре секунды без убийства.'
+        : 'Этаж сдан. Отправь его кому-нибудь: ссылка несёт и уровень, и твоё время.'),
+    stats: `<span>ВРЕМЯ ${formatTime(world.time)}</span><span>ПОПЫТОК ${attempts}</span>`
+      + (verdict ? `<span>${verdict}</span>` : ''),
+    share: true,
     action: more ? 'СЛЕДУЮЩИЙ ЭТАЖ' : 'ПРОЙТИ ЧИЩЕ',
     second: more ? 'ПРОЙТИ ЭТОТ ЧИЩЕ' : 'ВЫЙТИ В МЕНЮ',
     result,
@@ -375,6 +433,14 @@ function updateHud(force) {
 
   ui.kills.textContent = `${world.kills}/${world.total}`;
   ui.clock.textContent = formatTime(world.time);
+
+  if (challenge) {
+    ui.target.hidden = false;
+    ui.targetTime.textContent = `${challenge.nick} ${formatTime(challenge.time)}`;
+    ui.target.dataset.late = world.time > challenge.time ? '1' : '0';
+  } else if (!ui.target.hidden) {
+    ui.target.hidden = true;
+  }
 
   ui.score.textContent = score.state.score;
 
@@ -570,6 +636,8 @@ ui.veilAction.addEventListener('click', (event) => {
     attempts = 0;
     if (hasNextFloor()) {
       levelIndex += 1;
+      /* Следующий этаж — уже не тот, на который звали: цель снимается. */
+      challenge = null;
       level = CAMPAIGN[levelIndex];
       levelCode = encode(level);
       world = createWorld(level);
@@ -592,6 +660,26 @@ ui.veilSecond.addEventListener('click', (event) => {
 });
 
 ui.codeBox.addEventListener('focus', () => ui.codeBox.select());
+
+ui.nickBox.addEventListener('input', () => {
+  const clean = cleanNick(ui.nickBox.value);
+  if (ui.nickBox.value !== clean) ui.nickBox.value = clean;
+  rememberNick(clean);
+  refreshLink();
+});
+
+$('copyLink').addEventListener('click', async () => {
+  refreshLink();
+  ui.linkBox.select();
+  try {
+    await navigator.clipboard.writeText(ui.linkBox.value);
+    setToast('ССЫЛКА СКОПИРОВАНА — ОТПРАВЬ ЕЁ', 2.4);
+  } catch (error) {
+    document.execCommand('copy');
+  }
+});
+
+ui.linkBox.addEventListener('focus', () => ui.linkBox.select());
 
 $('copyCode').addEventListener('click', async () => {
   ui.codeBox.select();

@@ -45,6 +45,12 @@
     <span id="combo" class="combo" hidden><b>×2</b><i></i></span>
   </div>
 
+  <!-- Чужой результат, если этаж открыт по вызову. -->
+  <div class="hud-slot hud-target" id="target" hidden>
+    <span class="hud-label">ЦЕЛЬ</span>
+    <b id="targetTime">0:00.0</b>
+  </div>
+
   <!-- Очередь демонов и форма, которая из неё соберётся. -->
   <div class="hud-slot hud-stack">
     <span class="hud-label">ОЧЕРЕДЬ</span>
@@ -100,6 +106,19 @@
         <button type="button" id="copyCode">КОПИЯ</button>
       </div>
       <small>Уровень целиком лежит в этой строке — сервер ни при чём.</small>
+    </div>
+
+    <div id="veilShare" class="veil-code" hidden>
+      <label for="nickBox">ТВОЁ ИМЯ В ВЫЗОВЕ</label>
+      <div class="code-row">
+        <input id="nickBox" type="text" maxlength="6" spellcheck="false" autocomplete="nickname">
+      </div>
+      <label for="linkBox">ССЫЛКА-ВЫЗОВ</label>
+      <div class="code-row">
+        <input id="linkBox" type="text" readonly spellcheck="false">
+        <button type="button" id="copyLink">КОПИЯ</button>
+      </div>
+      <small>Ссылка несёт этаж целиком и твой результат. Кто откроет — пройдёт ровно этот этаж и увидит, что нужно побить.</small>
     </div>
 
     <button type="button" id="veilAction" class="veil-action">ВЗЯТЬ КЛЮЧИ</button>

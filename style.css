@@ -227,6 +227,11 @@ html, body {
   to { transform: scale(1); }
 }
 
+.hud-target b { color: var(--violet); }
+
+/* Время вышло за чужой результат — цель уже не побить, и это видно сразу. */
+.hud-target[data-late="1"] b { color: var(--pink); }
+
 .hud-stack {
   flex-direction: row;
   align-items: center;
@@ -591,6 +596,12 @@ html, body {
 }
 
 .code-row { display: flex; gap: 6px; }
+
+.code-row #nickBox {
+  flex: 0 0 120px;
+  color: var(--acid);
+  text-transform: uppercase;
+}
 
 .code-row input {
   flex: 1;
