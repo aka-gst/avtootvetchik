@@ -268,9 +268,13 @@ export function createRenderer(canvas) {
       return;
     }
 
-    g.fillStyle = '#f6e6ff';
-    g.fillRect(7 + push * 0.4, -6, 5, 4);
-    g.fillRect(7 + push * 0.4, 2, 5, 4);
+    /* Набранный демон: сгусток в ладони, а не предмет. */
+    if (weapon === 'daemon') {
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      g.beginPath();
+      g.ellipse(11, 0, 4, 4, 0, 0, 6.29);
+      g.fill();
+    }
   }
 
   const PALETTE = {
@@ -322,7 +326,6 @@ export function createRenderer(canvas) {
     drawDecals(ctx, world);
     drawCorpses(ctx, world);
     drawCasings(ctx, world);
-    drawPickups(ctx, world);
     drawVision(ctx, world);
     drawNoises(ctx, world);
     drawEnemies(ctx, world);
@@ -398,28 +401,6 @@ export function createRenderer(canvas) {
       g.restore();
     }
     g.globalAlpha = 1;
-  }
-
-  function drawPickups(g, world) {
-    for (const pickup of world.pickups) {
-      g.save();
-      g.translate(pickup.x, pickup.y);
-
-      if (!pickup.flying) {
-        const glow = 0.25 + Math.sin(world.time * 4 + pickup.x) * 0.12;
-        g.fillStyle = `rgba(118,255,159,${glow})`;
-        g.beginPath();
-        g.ellipse(0, 0, 13, 13, 0, 0, 6.29);
-        g.fill();
-      }
-
-      g.rotate(pickup.angle);
-      g.fillStyle = 'rgba(0,0,0,.5)';
-      g.fillRect(-9, -1, 22, 5);
-      g.translate(-10, 0);
-      drawWeapon(g, pickup.weapon, 0, 0);
-      g.restore();
-    }
   }
 
   /*
@@ -553,38 +534,11 @@ export function createRenderer(canvas) {
     const player = world.player;
     if (!player.alive) return;
 
+    /* Демон в руке — не оружие, поэтому в руках у игрока пусто. */
     body(g, player.x, player.y, player.angle, PALETTE.player, {
-      weapon: player.weapon,
-      swing: player.swing,
+      weapon: player.stack.length ? 'daemon' : null,
+      charging: player.chargeLeft > 0,
     });
-
-    /*
-     * Дуга удара прочерчивается по ходу замаха, а не висит целиком: так
-     * видно и что удар состоялся, и куда он пришёлся. Попадание заливает
-     * сектор белым, промах остаётся тонкой линией.
-     */
-    if (player.swing > 0 && WEAPONS[player.weapon].kind === 'melee') {
-      const weapon = WEAPONS[player.weapon];
-      const done = Math.min(1, 1 - player.swing / 0.16);
-      const from = player.angle - weapon.arc / 2;
-      const to = from + weapon.arc * done;
-      const hit = player.swingHit > 0;
-
-      g.beginPath();
-      g.moveTo(player.x, player.y);
-      g.arc(player.x, player.y, weapon.reach, from, to);
-      g.closePath();
-      g.fillStyle = hit ? `rgba(255,255,255,${player.swingHit * 1.6})` : 'rgba(255,255,255,.07)';
-      g.fill();
-
-      g.strokeStyle = hit
-        ? `rgba(255,255,255,${Math.min(0.95, player.swingHit * 5)})`
-        : `rgba(255,255,255,${player.swing * 3})`;
-      g.lineWidth = hit ? 4 : 2;
-      g.beginPath();
-      g.arc(player.x, player.y, weapon.reach, from, to);
-      g.stroke();
-    }
 
     /*
      * Очередь рисуется над головой, а не только в углу экрана: заряженный

@@ -28,8 +28,12 @@ export const ELEMENT_ORDER = ['fire', 'water', 'wind'];
 
 export const STACK_LIMIT = 3;
 
-/* Столько длится набор одной стихии — и столько игрок стоит замедленным. */
-export const CHARGE_STEP = 0.26;
+/*
+ * Столько длится набор одной стихии — и столько игрок стоит замедленным.
+ * Оружия у игрока нет вовсе, поэтому одиночный плевок — егобазовый
+ * ответ, и цена первой стихии заодно задаёт темп всей игры.
+ */
+export const CHARGE_STEP = 0.22;
 
 /*
  * Формы. Урон везде один — смерть, — поэтому различаются они тем, куда
@@ -39,37 +43,37 @@ export const CHARGE_STEP = 0.26;
 export const FORMS = {
   spit: {
     id: 'spit', name: 'ПЛЕВОК',
-    kind: 'shot', speed: 620, life: 0.3, pierce: 0, noise: 300,
+    kind: 'shot', speed: 660, life: 0.32, pierce: 0, noise: 170, cooldown: 0.12,
     hint: 'одна стихия — быстро и близко',
   },
   bolt: {
     id: 'bolt', name: 'СГУСТОК',
-    kind: 'shot', speed: 780, life: 0.5, pierce: 1, noise: 360,
+    kind: 'shot', speed: 800, life: 0.5, pierce: 1, noise: 260, cooldown: 0.16,
     hint: 'две одинаковые — дальше и сквозь одного',
   },
   cone: {
     id: 'cone', name: 'ВЫДОХ',
-    kind: 'cone', reach: 124, arc: 1.0, noise: 380,
+    kind: 'cone', reach: 124, arc: 1.0, noise: 380, cooldown: 0.2,
     hint: 'две разные — короткий конус перед собой',
   },
   shard: {
     id: 'shard', name: 'ЗАЛП',
-    kind: 'fan', speed: 700, life: 0.42, spread: 0.22, pierce: 0, noise: 400,
+    kind: 'fan', speed: 700, life: 0.42, spread: 0.22, pierce: 0, noise: 400, cooldown: 0.22,
     hint: 'две одинаковые и третья — веер из трёх',
   },
   beam: {
     id: 'beam', name: 'ЛУЧ',
-    kind: 'beam', windup: 0.26, range: 900, noise: 520,
+    kind: 'beam', windup: 0.26, range: 900, noise: 520, cooldown: 0.3,
     hint: 'три одинаковые — линия через всю комнату, но с замахом',
   },
   pierce: {
     id: 'pierce', name: 'ПРОБОЙ',
-    kind: 'shot', speed: 640, life: 1, pierce: 99, breaks: true, noise: 460,
+    kind: 'shot', speed: 640, life: 1, pierce: 99, breaks: true, noise: 460, cooldown: 0.26,
     hint: 'по краям одинаковые — идёт сквозь тела и стекло',
   },
   nova: {
     id: 'nova', name: 'ВСПЫШКА',
-    kind: 'nova', radius: 104, noise: 500,
+    kind: 'nova', radius: 104, noise: 500, cooldown: 0.3,
     hint: 'три разные — круг вокруг себя, в тесноте достанет и тебя',
   },
 };

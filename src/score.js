@@ -6,6 +6,10 @@
  * подряд множатся, пауза обнуляет множитель. Одинокая аккуратная зачистка
  * из-за угла даёт D, тот же этаж на одном дыхании — S.
  *
+ * Оружия у игрока нет, поэтому считаются не выстрелы, а выпуски демонов:
+ * разнообразие форм поощряется, холостой выпуск — единственное, что
+ * прямо наказывается потерей бонуса.
+ *
  * Модуль ничего не знает про DOM и про мир: он ест события, которые мир
  * и так порождает, и отдаёт числа. Поэтому его можно прогнать в Node.
  */
@@ -37,8 +41,8 @@ export function createScore(level, attempts = 1) {
     kills: 0,
     executions: 0,
     crossfire: 0,
-    shots: 0,
-    weapons: new Set(),
+    releases: 0,
+    forms: new Set(),
     attempts,
   };
 
@@ -55,7 +59,6 @@ export function createScore(level, attempts = 1) {
     state.kills += 1;
 
     if (event.execution) state.executions += 1;
-    if (event.weapon) state.weapons.add(event.weapon);
 
     state.score += (event.execution ? EXECUTION : KILL) * state.combo;
   }
@@ -63,7 +66,11 @@ export function createScore(level, attempts = 1) {
   function feed(events) {
     for (const event of events) {
       if (event.type === 'kill') kill(event);
-      else if (event.type === 'shot' && event.from === 'player') state.shots += 1;
+      else if (event.type === 'daemon') {
+        /* Считаем не выстрелы, а выпуски: у игрока нет оружия, только формы. */
+        state.releases += 1;
+        state.forms.add(event.form);
+      }
     }
   }
 
@@ -100,10 +107,15 @@ export function createScore(level, attempts = 1) {
     const limit = par(world.total);
     if (world.time < limit) add('БЫСТРО', Math.round((limit - world.time) * 25));
 
-    add('РАЗНООБРАЗИЕ', (state.weapons.size - 1) * 200);
+    add('РАЗНЫХ ФОРМ ' + state.forms.size, (state.forms.size - 1) * 200);
     add('МАКС. КОМБО ×' + state.maxCombo, (state.maxCombo - 1) * 150);
-    if (state.shots === 0 && world.kills > 0) add('НИ ОДНОГО ВЫСТРЕЛА', 800);
-    if (state.executions > 0) add('ДОБИТО ЛЕЖАЧИХ ' + state.executions, state.executions * 100);
+
+    /*
+     * Выпущенный в пустоту демон стоил времени и шума, поэтому забег без
+     * единого холостого — отдельная заслуга. Один выпуск может убить
+     * нескольких, так что сравниваем счётчики, а не пары.
+     */
+    if (state.releases > 0 && state.kills >= state.releases) add('НИ ОДНОГО ХОЛОСТОГО', 700);
     if (state.crossfire > 0) add('ЧУЖИМИ РУКАМИ ' + state.crossfire, 0);
     if (state.attempts === 1) add('С ПЕРВОГО РАЗА', 500);
 

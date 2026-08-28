@@ -8,8 +8,8 @@
 
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
-import { createWorld, update, WEAPONS } from './world.js';
-import { AIM_CONE, assistAim, closeThreat, meleeSnap, hasTargetUnderAim, awareTargetInReach } from './aim.js';
+import { createWorld, update } from './world.js';
+import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -24,8 +24,6 @@ const input = createInput(canvas);
 const audio = createAudio();
 
 const ui = {
-  weapon: $('weapon'),
-  ammo: $('ammo'),
   kills: $('kills'),
   clock: $('clock'),
   toast: $('toast'),
@@ -183,8 +181,8 @@ function setToast(text, seconds = 2) {
 
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
-    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНОВ — УДАР ИХ ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ, ПРОБЕЛ — УДАР И ВЫПУСК ДЕМОНА. СТРЕЛКИ НАБИРАЮТ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР, ↓ — БРОСИТЬ. E — ПОДОБРАТЬ, R — ЗАНОВО. ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, УДАР ИДЁТ САМ.';
+    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНА, БОЛЬШАЯ ЕГО ВЫПУСКАЕТ.'
+    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНА: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР. ПРОБЕЛ ВЫПУСКАЕТ НАБРАННОЕ, ↓ СБРАСЫВАЕТ. ПРИЦЕЛ ВЕДЁТСЯ САМ. R — ЗАНОВО.';
 }
 
 
@@ -298,15 +296,8 @@ function buildIntent(raw) {
     aimAngle: null,
     attack: false,
     charge: null,
-    /*
-     * Пробел бьёт — он под большим пальцем той руки, что уже на стрелках.
-     * Подбор ушёл на E, к левой руке: он нужен реже удара, и лишний палец
-     * правой руки на него не найдётся. Вверх остаётся водой — трём
-     * стихиям нужны три стрелки.
-     */
-    pickup: input.tookKey('KeyE') || input.tookKey('Pickup'),
-    throw: input.tookKey('ArrowDown') || input.tookKey('KeyQ') || input.tookKey('Throw'),
-    dump: input.tookKey('Backspace') || input.tookKey('Digit0'),
+    /* Сброс набранного: время потрачено, но выпустить не туда — хуже. */
+    dump: input.tookKey('ArrowDown') || input.tookKey('Backspace'),
   };
 
   /* Забираем все три нажатия, а не первое: иначе непрочитанное всплывёт кадром позже. */
@@ -350,24 +341,6 @@ function buildIntent(raw) {
     intent.attack = hasTargetUnderAim(world, intent.aimAngle);
   }
 
-  /*
-   * Автоудар в ближнем бою. Обе руки заняты — левая ведёт, правая набирает
-   * демонов, — поэтому по тому, кто уже бросился на игрока, удар идёт сам.
-   * Спящих это не касается: убийство со спины остаётся ручным, иначе мимо
-   * часового нельзя было бы просто пройти.
-   *
-   * Очередь демонов автоудар не трогает никогда: набранное выпускают
-   * осознанно, на то оно и ставка.
-   */
-  if (!intent.attack && !player.stack.length && intent.aimAngle !== null) {
-    intent.attack = awareTargetInReach(world, intent.aimAngle);
-  }
-
-  if (intent.attack) {
-    const snapped = meleeSnap(world, intent.aimAngle === null ? player.angle : intent.aimAngle);
-    if (snapped !== null) intent.aimAngle = snapped;
-  }
-
   return intent;
 }
 
@@ -377,17 +350,6 @@ function buildIntent(raw) {
 
 function updateHud(force) {
   const player = world.player;
-  const weapon = WEAPONS[player.weapon];
-
-  if (force || ui.weapon.textContent !== weapon.name) ui.weapon.textContent = weapon.name;
-
-  if (weapon.kind === 'gun') {
-    ui.ammo.innerHTML = '<i></i>'.repeat(Math.max(0, player.ammo));
-    ui.ammo.dataset.empty = player.ammo === 0 ? '1' : '0';
-  } else {
-    ui.ammo.innerHTML = '';
-    ui.ammo.dataset.empty = '0';
-  }
 
   const player2 = world.player;
   const loaded = formFor(player2.stack);
@@ -456,9 +418,7 @@ function drainEvents() {
     } else if (event.type === 'cleared') {
       setToast('ЭТАЖ ЧИСТ — К ВЫХОДУ', 3);
     } else if (event.type === 'dry') {
-      setToast('ПУСТО', 1.2);
-    } else if (event.type === 'pickup') {
-      setToast(WEAPONS[world.player.weapon].name, 1.2);
+      setToast('СНАЧАЛА НАБЕРИ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР', 1.6);
     } else if (event.type === 'exit') {
       clearScreen();
     }
@@ -650,8 +610,6 @@ ui.mute.addEventListener('click', () => {
 
 for (const element of ELEMENT_ORDER) input.bindButton($(`btn-${element}`), element);
 input.bindButton($('btnAttack'), 'attack');
-input.bindButton($('btnPickup'), 'pickup');
-input.bindButton($('btnThrow'), 'throw');
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && scene === 'play') pauseScreen();

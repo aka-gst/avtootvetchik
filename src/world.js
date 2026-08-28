@@ -7,6 +7,10 @@
  *
  * Главное правило жанра: с одного удара умирают все, включая игрока.
  * Поэтому здоровья нет ни у кого, а есть только «жив» и «лежит».
+ *
+ * Оружия у игрока нет вовсе — только очередь демонов. Подобрать с пола
+ * нечего, бросить нечего: всё, что он умеет, набирается стрелками. У
+ * врагов оружие осталось: бита и пистолет — это их роль, а не инвентарь.
  */
 
 import { TILE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
@@ -18,11 +22,8 @@ export const TILE_SIZE = 32;
 /* Радиус тела одинаков у всех: попадание должно читаться на глаз. */
 export const BODY = 9;
 
+/* Оружие врагов. У игрока его нет — он ходит с очередью демонов. */
 export const WEAPONS = {
-  fists: {
-    id: 'fists', name: 'КУЛАКИ', kind: 'melee',
-    reach: 28, arc: 1.9, cooldown: 0.22, lethal: false, noise: 70,
-  },
   bat: {
     id: 'bat', name: 'БИТА', kind: 'melee',
     reach: 38, arc: 2.0, cooldown: 0.27, lethal: true, noise: 110,
@@ -226,8 +227,6 @@ export function createWorld(level) {
       vx: 0, vy: 0,
       angle: (level.spawn.angle || 0) * (Math.PI / 4),
       alive: true,
-      weapon: 'fists',
-      ammo: 0,
       cooldown: 0,
       swing: 0,
       step: 0,
@@ -241,7 +240,6 @@ export function createWorld(level) {
     },
 
     enemies: [],
-    pickups: [],
     bullets: [],
     particles: [],
     pops: [],
@@ -321,8 +319,8 @@ export function createWorld(level) {
       continue;
     }
 
-    if (entity.type === 3) world.pickups.push({ weapon: 'bat', x, y, angle: rand(0, 6.28), ammo: 0, vx: 0, vy: 0, spin: 0 });
-    if (entity.type === 4) world.pickups.push({ weapon: 'pistol', x, y, angle: rand(0, 6.28), ammo: WEAPONS.pistol.clip, vx: 0, vy: 0, spin: 0 });
+    /* Типы 3 и 4 — оружие на полу из старых кодов. Подбирать нечего,
+       поэтому они просто пропускаются: чужой код всё равно откроется. */
   }
 
   world.flow = buildFlowField(world, world.player.x, world.player.y);
@@ -499,17 +497,6 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
     twitch: 0.5,
   });
 
-  /* Оружие остаётся на полу — из него и собирается следующая минута. */
-  if (enemy.weapon) {
-    world.pickups.push({
-      weapon: enemy.weapon,
-      ammo: enemy.ammo,
-      x: enemy.x + Math.cos(angle) * 12,
-      y: enemy.y + Math.sin(angle) * 12,
-      angle: rand(0, 6.28), vx: 0, vy: 0, spin: 0,
-    });
-  }
-
   world.fx.hitstop = Math.max(world.fx.hitstop, 0.045);
   world.fx.flash = Math.max(world.fx.flash, 0.25);
 
@@ -575,7 +562,7 @@ function castForm(world, form, elements) {
   const player = world.player;
   const angle = player.angle;
 
-  player.cooldown = 0.22;
+  player.cooldown = form.cooldown || 0.22;
   emitNoise(world, player.x, player.y, form.noise, 'player');
   world.fx.shake = Math.max(world.fx.shake, form.kind === 'nova' ? 9 : 4.5);
   world.fx.punch = 1;
@@ -732,65 +719,6 @@ function castNova(world, form, elements) {
 
 
 /* =========================================================
-   ПОДОБРАТЬ И БРОСИТЬ
-   ========================================================= */
-
-function tryPickup(world) {
-  const player = world.player;
-  let best = null;
-  let bestDist = 34;
-
-  for (const pickup of world.pickups) {
-    if (pickup.flying) continue;
-    const dist = Math.hypot(pickup.x - player.x, pickup.y - player.y);
-    if (dist < bestDist) { best = pickup; bestDist = dist; }
-  }
-
-  if (!best) return;
-
-  const carried = player.weapon;
-  const carriedAmmo = player.ammo;
-
-  player.weapon = best.weapon;
-  player.ammo = best.ammo;
-  world.pickups.splice(world.pickups.indexOf(best), 1);
-  world.events.push({ type: 'pickup' });
-
-  if (carried !== 'fists') {
-    world.pickups.push({
-      weapon: carried, ammo: carriedAmmo,
-      x: player.x, y: player.y, angle: rand(0, 6.28), vx: 0, vy: 0, spin: 0,
-    });
-  }
-}
-
-/*
- * Брошенное оружие сбивает с ног, но не убивает. Это выход из положения,
- * когда патроны кончились, а не второй пистолет.
- */
-function tryThrow(world) {
-  const player = world.player;
-  if (player.weapon === 'fists') return;
-
-  world.pickups.push({
-    weapon: player.weapon,
-    ammo: player.ammo,
-    x: player.x + Math.cos(player.angle) * 12,
-    y: player.y + Math.sin(player.angle) * 12,
-    vx: Math.cos(player.angle) * 560,
-    vy: Math.sin(player.angle) * 560,
-    angle: player.angle,
-    spin: 22,
-    flying: true,
-  });
-
-  player.weapon = 'fists';
-  player.ammo = 0;
-  world.events.push({ type: 'throw' });
-}
-
-
-/* =========================================================
    ШАГ МИРА
    ========================================================= */
 
@@ -872,9 +800,6 @@ function updatePlayer(world, dt, intent) {
   player.swingHit = Math.max(0, (player.swingHit || 0) - dt);
   player.flash = Math.max(0, (player.flash || 0) - dt);
 
-  if (intent.pickup) tryPickup(world);
-  if (intent.throw) tryThrow(world);
-
   /* Луч на замахе: линию уже видно, отменить нельзя. */
   if (player.windup > 0) {
     player.windup -= dt;
@@ -912,8 +837,8 @@ function updatePlayer(world, dt, intent) {
   if (intent.attack && player.cooldown <= 0) {
     /*
      * Удар при наборе бросает недобранную стихию и выпускает то, что уже
-     * есть. Так кнопка удара всегда делает хоть что-то: остаться без
-     * ответа из-за собственного набора — худшее, что тут может случиться.
+     * есть: остаться без ответа из-за собственного набора — худшее, что
+     * тут может случиться.
      */
     if (player.chargeLeft > 0) {
       player.chargeLeft = 0;
@@ -922,22 +847,10 @@ function updatePlayer(world, dt, intent) {
 
     if (player.stack.length) {
       releaseStack(world);
-      return;
-    }
-  }
-
-  if (intent.attack && player.cooldown <= 0) {
-    const weapon = WEAPONS[player.weapon];
-    if (weapon.kind === 'gun') {
-      if (player.ammo > 0) {
-        fireGun(world, player, 'player');
-        world.fx.punch = 1;
-      } else {
-        player.cooldown = 0.25;
-        world.events.push({ type: 'dry' });
-      }
     } else {
-      swingMelee(world, player, 'player');
+      /* Пустая очередь — единственный случай, когда удар ничего не делает. */
+      player.cooldown = 0.18;
+      world.events.push({ type: 'dry' });
     }
   }
 
@@ -1091,54 +1004,6 @@ function updateBullets(world, dt) {
 
 
 function updateLoose(world, dt) {
-  for (const pickup of world.pickups) {
-    if (!pickup.flying) continue;
-
-    const nx = pickup.x + pickup.vx * dt;
-    const ny = pickup.y + pickup.vy * dt;
-
-    if (blocksMove(tileAt(world, nx, ny))) {
-      pickup.flying = false;
-      pickup.vx = 0;
-      pickup.vy = 0;
-      pickup.spin = 0;
-      spark(world, pickup.x, pickup.y, Math.atan2(-pickup.vy, -pickup.vx), 1, 4, '#cfc3ff', 90);
-      emitNoise(world, pickup.x, pickup.y, 200, 'throw');
-      continue;
-    }
-
-    pickup.x = nx;
-    pickup.y = ny;
-    pickup.angle += pickup.spin * dt;
-
-    for (const enemy of world.enemies) {
-      if (!enemy.alive || enemy.downed > 0) continue;
-      if (Math.hypot(enemy.x - pickup.x, enemy.y - pickup.y) < BODY + 6) {
-        const angle = Math.atan2(pickup.vy, pickup.vx);
-        if (shieldStops(world, enemy, angle)) {
-          pickup.flying = false;
-          pickup.vx = 0;
-          pickup.vy = 0;
-          pickup.spin = 0;
-          break;
-        }
-        knockDown(world, enemy, angle);
-        world.events.push({ type: 'thrown-hit' });
-        world.fx.hitstop = Math.max(world.fx.hitstop, 0.06);
-        world.fx.shake = Math.max(world.fx.shake, 4);
-        pickup.flying = false;
-        pickup.vx = 0;
-        pickup.vy = 0;
-        pickup.spin = 0;
-        break;
-      }
-    }
-
-    pickup.vx *= 0.995;
-    pickup.vy *= 0.995;
-    if (Math.hypot(pickup.vx, pickup.vy) < 60) pickup.flying = false;
-  }
-
   for (const ring of world.pops) ring.life -= dt;
   world.pops = world.pops.filter((ring) => ring.life > 0);
 
