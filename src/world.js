@@ -20,23 +20,29 @@ export const BODY = 9;
 export const WEAPONS = {
   fists: {
     id: 'fists', name: 'КУЛАКИ', kind: 'melee',
-    reach: 27, arc: 1.9, cooldown: 0.30, lethal: false, noise: 70,
+    reach: 28, arc: 1.9, cooldown: 0.22, lethal: false, noise: 70,
   },
   bat: {
     id: 'bat', name: 'БИТА', kind: 'melee',
-    reach: 36, arc: 2.0, cooldown: 0.36, lethal: true, noise: 110,
+    reach: 38, arc: 2.0, cooldown: 0.27, lethal: true, noise: 110,
   },
   pistol: {
     id: 'pistol', name: 'ПИСТОЛЕТ', kind: 'gun',
-    cooldown: 0.24, clip: 12, speed: 720, spread: 0.03, noise: 460,
+    cooldown: 0.19, clip: 12, speed: 820, spread: 0.03, noise: 460,
   },
 };
 
-const PLAYER_SPEED = 205;
-const PLAYER_ACCEL = 2600;
-const ENEMY_WALK = 62;
-const ENEMY_RUN = 138;
-const DOWN_TIME = 2.4;
+/*
+ * Темп. Игра про то, что всё решается за секунду, поэтому разгон почти
+ * мгновенный: между нажатием и движением не должно быть ничего, что
+ * чувствуется. Враг бежит заметно медленнее игрока — убегать можно, но
+ * от пули это не спасает.
+ */
+const PLAYER_SPEED = 252;
+const PLAYER_ACCEL = 3600;
+const ENEMY_WALK = 70;
+const ENEMY_RUN = 152;
+const DOWN_TIME = 2;
 const BULLET_LIFE = 1.6;
 
 
@@ -357,7 +363,7 @@ function swingMelee(world, attacker, from) {
   }
 
   if (connected) {
-    world.fx.hitstop = Math.max(world.fx.hitstop, 0.075);
+    world.fx.hitstop = Math.max(world.fx.hitstop, 0.05);
     world.fx.shake = Math.max(world.fx.shake, 5);
   }
 }
@@ -397,7 +403,7 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
     });
   }
 
-  world.fx.hitstop = Math.max(world.fx.hitstop, 0.06);
+  world.fx.hitstop = Math.max(world.fx.hitstop, 0.045);
   world.fx.flash = Math.max(world.fx.flash, 0.25);
 
   /*
@@ -425,7 +431,7 @@ export function killPlayer(world, angle) {
   player.alive = false;
   world.state = 'dead';
   bleed(world, player.x, player.y, angle, 240);
-  world.fx.hitstop = Math.max(world.fx.hitstop, 0.22);
+  world.fx.hitstop = Math.max(world.fx.hitstop, 0.16);
   world.fx.shake = 11;
   world.events.push({ type: 'death' });
 }

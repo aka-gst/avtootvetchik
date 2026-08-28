@@ -161,7 +161,7 @@ function setToast(text, seconds = 2) {
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ. ПРАВЫЙ ЦЕЛИТ И БЬЁТ САМ, КОГДА ЦЕЛЬ ПОД ПРИЦЕЛОМ. КНОПКИ СПРАВА — ВЗЯТЬ И БРОСИТЬ.'
-    : 'WASD — ИДТИ. МЫШЬ — ЦЕЛИТЬ. ЛКМ — БИТЬ. E — ВЗЯТЬ. ПКМ ИЛИ Q — БРОСИТЬ. R — ЗАНОВО.';
+    : 'WASD — ИДТИ, СТРЕЛКИ — ЦЕЛИТЬ, ПРОБЕЛ — БИТЬ. МЫШЬ ТОЖЕ ЦЕЛИТ. E — ВЗЯТЬ, Q — БРОСИТЬ, R — ЗАНОВО.';
 }
 
 
@@ -299,15 +299,24 @@ function buildIntent(raw) {
 
   if (raw.aimStick !== null) {
     intent.aimAngle = assistAim(raw.aimStick, true);
-  } else if (!raw.touch && raw.mouse.used) {
+  } else if (raw.aimKeys) {
+    /* Стрелки дают восемь направлений — помощь прицела дотягивает до цели. */
+    intent.aimAngle = assistAim(Math.atan2(raw.aimKeys.y, raw.aimKeys.x), true);
+  } else if (!raw.touch && raw.mouse.moved) {
     const worldX = lastView.camX + (raw.mouse.x - canvas.clientWidth / 2) / lastView.zoom;
     const worldY = lastView.camY + (raw.mouse.y - canvas.clientHeight / 2) / lastView.zoom;
     intent.aimAngle = assistAim(Math.atan2(worldY - player.y, worldX - player.x), false);
+  } else if (raw.moveX || raw.moveY) {
+    /*
+     * Ни мыши, ни стрелок — целимся туда, куда бежим, и доводим до цели.
+     * Это и есть игра «чисто с кнопок»: одной рукой на WASD и пробеле.
+     */
+    intent.aimAngle = assistAim(Math.atan2(raw.moveY, raw.moveX), true);
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */
-  const fired = input.tookKey('Fire') || input.tookKey('Space');
-  intent.attack = fired || raw.attackHeld || input.keys.has('Space');
+  const fired = input.tookKey('Fire') || input.tookKey('Space') || input.tookKey('KeyJ');
+  intent.attack = fired || raw.attackHeld;
 
   /*
    * Палец не умеет одновременно целиться стиком и жать кнопку: это один и
@@ -392,7 +401,7 @@ function drainEvents() {
       vibrate(12);
     } else if (event.type === 'death') {
       vibrate([40, 30, 90]);
-      deathHold = 0.55;
+      deathHold = 0.32;
     } else if (event.type === 'cleared') {
       setToast('ЭТАЖ ЧИСТ — К ВЫХОДУ', 3);
     } else if (event.type === 'dry') {
@@ -444,7 +453,7 @@ function frame(now) {
     audio.setIntensity(world.total ? alerted / world.total : 0);
 
     if (world.state === 'dead') {
-      deathHold = 0.55;
+      deathHold = 0.32;
       scene = 'dying';
     }
 
@@ -462,16 +471,21 @@ function frame(now) {
   /* R перезапускает этаж откуда угодно, кроме экрана звонка. */
   const restart = input.tookKey('KeyR');
   if (scene === 'dead' || scene === 'dying') {
-    if (restart || input.tookKey('Fire')) startLevel(level, { silent: true });
+    /* После смерти перезапускает всё, что под рукой: R, пробел, удар. */
+    if (restart || input.tookKey('Fire') || input.tookKey('Space') || input.tookKey('KeyJ')) {
+      startLevel(level, { silent: true });
+    }
   } else if (restart && (scene === 'play' || scene === 'pause')) {
     startLevel(level, { silent: true });
   }
 
   if (world) {
+    /* Камера смотрит чуть вперёд по прицелу и догоняет быстро: на этой
+       скорости мягкое слежение отстаёт и игрок упирается в край кадра. */
     const player = world.player;
-    const lead = 0.16;
-    view.x += (player.x + Math.cos(player.angle) * 40 * lead - view.x) * Math.min(1, dt * 8);
-    view.y += (player.y + Math.sin(player.angle) * 40 * lead - view.y) * Math.min(1, dt * 8);
+    const lead = 52;
+    view.x += (player.x + Math.cos(player.angle) * lead - view.x) * Math.min(1, dt * 11);
+    view.y += (player.y + Math.sin(player.angle) * lead - view.y) * Math.min(1, dt * 11);
     lastView = renderer.draw(world, view);
 
     /*
@@ -533,9 +547,11 @@ function resize() {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
 
-ui.veilAction.addEventListener('click', () => {
+ui.veilAction.addEventListener('click', (event) => {
   audio.unlock();
   audio.sfx('ui');
+  /* Снимаем фокус: иначе пробел в бою повторно нажимал бы эту кнопку. */
+  event.currentTarget.blur();
 
   if (scene === 'call') startLevel(level);
   else if (scene === 'dead') startLevel(level, { silent: true });
@@ -543,8 +559,9 @@ ui.veilAction.addEventListener('click', () => {
   else if (scene === 'pause') { hideVeil(); scene = 'play'; }
 });
 
-ui.veilSecond.addEventListener('click', () => {
+ui.veilSecond.addEventListener('click', (event) => {
   audio.sfx('ui');
+  event.currentTarget.blur();
   if (scene === 'pause') startLevel(level, { silent: true });
   else if (scene === 'clear') { attempts = 0; callScreen(); }
 });
