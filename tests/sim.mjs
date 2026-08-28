@@ -19,7 +19,7 @@ import { buildFlowField } from '../src/ai.js';
 import { blocksMove } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
-import { CHARGE_STEP, shapeOf, formFor } from '../src/daemons.js';
+import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, formFor } from '../src/daemons.js';
 
 const DT = 1 / 60;
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
@@ -162,10 +162,16 @@ function cast(world, stack, angle) {
       const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
       const clear = hasSight(w, player.x, player.y, enemy.x, enemy.y);
 
-      /* Стреляем одиночными: бот проверяет проходимость игры, а не мастерство. */
+      /*
+       * Стреляем одиночными и не своей стихией: бот обязан играть по тем
+       * же правилам, иначе он проверяет не игру, а поддавки.
+       */
       if (clear && dist < 260) {
         if (player.stack.length) return { ...idle, aimAngle: angle, attack: true };
-        if (player.chargeLeft <= 0) return { ...idle, aimAngle: angle, charge: 'fire' };
+        if (player.chargeLeft <= 0) {
+          const element = ELEMENT_ORDER.find((candidate) => candidate !== enemy.resist);
+          return { ...idle, aimAngle: angle, charge: element };
+        }
         return { ...idle, aimAngle: angle };
       }
 
@@ -206,7 +212,8 @@ function cast(world, stack, angle) {
     player.x = victim.x;
     player.y = victim.y + 60;
     const angle = -Math.PI / 2;
-    for (const element of ['fire']) {
+    /* Бьём не той стихией, которой он светится, иначе он просто отобьёт. */
+    for (const element of [ELEMENT_ORDER.find((e) => e !== victim.resist)]) {
       step({ ...idle, aimAngle: angle, charge: element });
       while (player.chargeLeft > 0) step({ ...idle, aimAngle: angle });
     }
@@ -321,38 +328,66 @@ function cast(world, stack, angle) {
   for (let i = 0; i < 20; i += 1) update(free, DT, { ...idle, moveX: 1 });
   const freeSpeed = Math.hypot(free.player.vx, free.player.vy);
 
+  /* Набираем непрерывно: меряем установившуюся скорость, а не первый кадр. */
   const slow = createWorld(CAMPAIGN[0]);
-  update(slow, DT, { ...idle, moveX: 1, charge: 'water' });
-  for (let i = 0; i < 10; i += 1) update(slow, DT, { ...idle, moveX: 1 });
+  for (let i = 0; i < 30; i += 1) {
+    const charging = slow.player.chargeLeft <= 0 && slow.player.stack.length < 3;
+    if (slow.player.stack.length >= 3) slow.player.stack.length = 0;
+    update(slow, DT, { ...idle, moveX: 1, charge: charging ? 'water' : null });
+  }
   check('во время набора игрок медленнее',
     Math.hypot(slow.player.vx, slow.player.vy) < freeSpeed * 0.7,
     `${Math.hypot(slow.player.vx, slow.player.vy) | 0} против ${freeSpeed | 0}`);
 }
 
-/* --- E5. Щит носителя --- */
+/* --- E5. Стойкость: своя стихия не берёт --- */
 {
-  const wrong = createWorld(CAMPAIGN[1]);
-  const carrier = wrong.enemies.find((e) => e.shield === 'water');
-  check('на втором этаже есть носитель воды', Boolean(carrier));
+  const world = createWorld(CAMPAIGN[1]);
+  const carrier = world.enemies.find((e) => e.resist === 'water');
+  check('на втором этаже есть кто-то с водяной стойкостью', Boolean(carrier));
 
-  wrong.player.x = carrier.x - 40;
-  wrong.player.y = carrier.y;
-  cast(wrong, ['fire'], 0);
-  run(wrong, 0.2);
-  check('чужая стихия щит срывает, носителя не берёт',
-    carrier.alive && carrier.shield === null, `жив=${carrier.alive}`);
-  check('сорванный щит выключает носителя', carrier.stagger > 0,
-    `оглушение ${carrier.stagger.toFixed(2)} с`);
-  run(wrong, 0.5);
-  check('оглушение проходит само', carrier.stagger <= 0);
+  const stand = (w, target) => {
+    w.player.x = target.x - 40;
+    w.player.y = target.y;
+    w.player.cooldown = 0;
+  };
 
-  const right = createWorld(CAMPAIGN[1]);
-  const matched = right.enemies.find((e) => e.shield === 'water');
-  right.player.x = matched.x - 40;
-  right.player.y = matched.y;
-  cast(right, ['water'], 0);
-  run(right, 0.4);
-  check('свой демон снимает щит вместе с носителем', !matched.alive);
+  stand(world, carrier);
+  cast(world, ['water'], 0);
+  run(world, 0.4);
+  check('своя стихия носителя не берёт', carrier.alive, `жив=${carrier.alive}`);
+
+  /* Три одного цвета против того же цвета — тоже мимо: это стойкость, а
+     не щит с зарядами, и количество её не пробивает. */
+  const triple = createWorld(CAMPAIGN[1]);
+  const same = triple.enemies.find((e) => e.resist === 'water');
+  stand(triple, same);
+  cast(triple, ['water', 'water', 'water'], 0);
+  run(triple, 0.6);
+  check('три своих подряд тоже не берут', same.alive, `жив=${same.alive}`);
+
+  const other = createWorld(CAMPAIGN[1]);
+  const target = other.enemies.find((e) => e.resist === 'water');
+  stand(other, target);
+  cast(other, ['fire'], 0);
+  run(other, 0.4);
+  check('чужая стихия убивает', !target.alive);
+
+  /* В смешанной очереди хватает одного чужого цвета. */
+  const mixed = createWorld(CAMPAIGN[1]);
+  const victim = mixed.enemies.find((e) => e.resist === 'water');
+  stand(mixed, victim);
+  cast(mixed, ['water', 'fire', 'water'], 0);
+  run(mixed, 0.6);
+  check('смешанная очередь проходит стойкость', !victim.alive);
+
+  /* Порча врага той же стихии не убивает своего — правило общее для всех. */
+  const ally = createWorld(CAMPAIGN[1]);
+  const caster = ally.enemies.find((e) => e.kind === 'caster');
+  check('дальнобойный швыряется магией, а не пулями',
+    caster && caster.weapon === 'hex', caster ? caster.weapon : 'нет такого');
+  check('его стихия видна и совпадает с его стойкостью',
+    caster.element === caster.resist, `${caster.element}/${caster.resist}`);
 }
 
 /* --- E6. Вспышка не разбирает своих --- */
@@ -391,7 +426,7 @@ function cast(world, stack, angle) {
       const angle = -Math.PI / 2 + (i - (count - 1) / 2) * 0.5;
       enemy.alive = true;
       enemy.downed = 9999;      /* обездвижены: меряем цену форм, а не бой */
-      enemy.shield = null;
+      enemy.resist = null;
       enemy.x = player.x + Math.cos(angle) * 40;
       enemy.y = player.y + Math.sin(angle) * 40;
       marked.push(enemy);

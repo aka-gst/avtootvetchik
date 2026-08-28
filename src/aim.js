@@ -94,3 +94,51 @@ export function hasTargetUnderAim(world, angle) {
 
   return false;
 }
+
+
+/*
+ * Захват цели.
+ *
+ * Доводка прицела помогает, только когда игрок уже смотрит примерно туда.
+ * С клавиатуры «примерно туда» не получается: направление берётся из бега,
+ * а бежать приходится в сторону. Поэтому при живой цели в комнате взгляд
+ * держится за неё сам — как ствол за плечом, а не как курсор за мышью.
+ *
+ * Прежняя цель не бросается, пока жива и видна: иначе прицел прыгает
+ * между двумя одинаково удобными врагами и промахивается по обоим.
+ */
+const LOCK_RANGE = 470;
+const LOCK_KEEP = 520;
+
+export function lockTarget(world, previous, facing) {
+  const player = world.player;
+
+  const visible = (enemy, limit) => {
+    if (!enemy || !enemy.alive) return false;
+    const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (dist > limit) return false;
+    return hasSight(world, player.x, player.y, enemy.x, enemy.y);
+  };
+
+  if (visible(previous, LOCK_KEEP)) return previous;
+
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const enemy of world.enemies) {
+    if (!visible(enemy, LOCK_RANGE)) continue;
+
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    const off = Math.abs(angleDelta(facing, Math.atan2(dy, dx)));
+
+    /* Ближе — важнее, но и разворачиваться на 180° ради лишнего метра глупо. */
+    const score = dist + off * 140;
+    if (score >= bestScore) continue;
+    bestScore = score;
+    best = enemy;
+  }
+
+  return best;
+}

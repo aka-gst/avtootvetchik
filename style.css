@@ -244,8 +244,8 @@ html, body {
 }
 
 .stack i {
-  width: 11px;
-  height: 11px;
+  width: 15px;
+  height: 15px;
   border: 1px solid #ffffff2a;
   background: transparent;
 }
@@ -263,9 +263,10 @@ html, body {
 }
 
 .form {
-  color: var(--paper) !important;
-  font: 800 10px var(--mono) !important;
+  color: var(--paper);
+  font: 900 13px var(--mono) !important;
   letter-spacing: .1em;
+  white-space: nowrap;
 }
 
 .form[hidden] { display: none; }

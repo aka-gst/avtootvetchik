@@ -14,7 +14,7 @@
 
 import { TILE } from './level.js';
 import { TILE_SIZE, BODY, WEAPONS } from './world.js';
-import { colourOf } from './daemons.js';
+import { colourOf, CHARGE_STEP } from './daemons.js';
 
 /*
  * Пол светлее стен, а не наоборот. Первый вариант палитры был собран
@@ -260,11 +260,12 @@ export function createRenderer(canvas) {
       return;
     }
 
-    if (weapon === 'pistol') {
-      g.fillStyle = '#dfe6ff';
-      g.fillRect(6, -1.5, 13, 3.5);
-      g.fillStyle = '#7b7f99';
-      g.fillRect(8, 1, 4, 4);
+    /* Порча в руке — тот же сгусток, что и у игрока, только чужого цвета. */
+    if (weapon === 'hex') {
+      g.fillStyle = 'rgba(255,255,255,.8)';
+      g.beginPath();
+      g.ellipse(12, 0, 3.5, 3.5, 0, 0, 6.29);
+      g.fill();
       return;
     }
 
@@ -279,8 +280,9 @@ export function createRenderer(canvas) {
 
   const PALETTE = {
     player: { body: '#ffcf4d', shirt: '#ff5ea8', head: '#ffe4b3', mask: '#76ff9f' },
-    thug: { body: '#4de1ff', shirt: '#123a52', head: '#cfeaff', mask: '#0d2233' },
-    shooter: { body: '#ff6b3d', shirt: '#4a1509', head: '#ffd9c4', mask: '#20060a' },
+    thug: { body: '#8f7fa8', shirt: '#2a2036', head: '#cfc3e0', mask: '#171021' },
+    caster: { body: '#6f5f8a', shirt: '#241a33', head: '#cfc3e0', mask: '#140d1e' },
+    carrier: { body: '#6f5f8a', shirt: '#241a33', head: '#cfc3e0', mask: '#140d1e' },
     dead: { body: '#5a4a63', shirt: '#332a3d', head: '#6d5c76', mask: '#241d2b' },
   };
 
@@ -329,6 +331,7 @@ export function createRenderer(canvas) {
     drawVision(ctx, world);
     drawNoises(ctx, world);
     drawEnemies(ctx, world);
+    drawLock(ctx, world);
     drawPlayer(ctx, world);
     drawBullets(ctx, world);
     drawBlasts(ctx, world);
@@ -461,16 +464,19 @@ export function createRenderer(canvas) {
 
       const palette = PALETTE[enemy.kind] || PALETTE.thug;
 
-      /* Щит видно всегда: по нему и читается, чем этого брать. */
-      if (enemy.shield) {
-        const colour = colourOf(enemy.shield);
-        const pulse = 0.45 + Math.sin(world.time * 6 + enemy.home.x) * 0.18;
-        g.strokeStyle = hexToRgba(colour, pulse);
-        g.lineWidth = 2;
+      /*
+       * Стихию врага видно всегда: она же его и защищает, поэтому кольцо
+       * вокруг тела — это прямая инструкция «этим цветом не бей».
+       */
+      if (enemy.resist) {
+        const colour = colourOf(enemy.resist);
+        const pulse = 0.5 + Math.sin(world.time * 6 + enemy.home.x) * 0.2;
+        g.strokeStyle = hexToRgba(colour, enemy.blocked > 0 ? 1 : pulse);
+        g.lineWidth = enemy.blocked > 0 ? 4 : 2;
         g.beginPath();
         g.arc(enemy.x, enemy.y, BODY + 6, 0, 6.29);
         g.stroke();
-        g.fillStyle = hexToRgba(colour, 0.12);
+        g.fillStyle = hexToRgba(colour, enemy.blocked > 0 ? 0.3 : 0.12);
         g.fill();
       }
 
@@ -530,6 +536,28 @@ export function createRenderer(canvas) {
     }
   }
 
+  /*
+   * Захваченная цель обведена скобками. Без метки автонаводка выглядит
+   * как своеволие: игрок не понимает, почему выстрел ушёл влево, — а с
+   * ней он видит, кого держит прицел, и может уйти за угол, чтобы сменить.
+   */
+  function drawLock(g, world) {
+    const target = world.locked;
+    if (!target || !target.alive) return;
+
+    const r = BODY + 9;
+    const t = world.time * 3;
+    g.strokeStyle = 'rgba(255,255,255,.75)';
+    g.lineWidth = 2;
+
+    for (let i = 0; i < 4; i += 1) {
+      const a = t + i * (Math.PI / 2);
+      g.beginPath();
+      g.arc(target.x, target.y, r, a - 0.25, a + 0.25);
+      g.stroke();
+    }
+  }
+
   function drawPlayer(g, world) {
     const player = world.player;
     if (!player.alive) return;
@@ -546,16 +574,32 @@ export function createRenderer(canvas) {
      */
     if (player.stack.length || player.chargeLeft > 0) {
       const total = player.stack.length + (player.chargeLeft > 0 ? 1 : 0);
-      const width = total * 7 - 2;
+      const width = total * 10 - 3;
+
       for (let i = 0; i < total; i += 1) {
         const element = player.stack[i] || player.charging;
         const filling = i >= player.stack.length;
-        const x = player.x - width / 2 + i * 7;
-        const y = player.y - BODY - 12;
-        g.fillStyle = filling
-          ? hexToRgba(colourOf(element), 0.35 + Math.sin(world.time * 30) * 0.25)
-          : colourOf(element);
-        g.fillRect(x, y, 5, 5);
+        const x = player.x - width / 2 + i * 10;
+        const y = player.y - BODY - 15;
+        const colour = colourOf(element);
+
+        g.fillStyle = 'rgba(0,0,0,.55)';
+        g.fillRect(x - 1, y - 1, 9, 9);
+
+        if (filling) {
+          /* Набираемая клетка наливается снизу вверх: видно, сколько ждать. */
+          const fill = Math.max(0, Math.min(1, 1 - player.chargeLeft / CHARGE_STEP));
+          g.strokeStyle = hexToRgba(colour, 0.9);
+          g.lineWidth = 1;
+          g.strokeRect(x - 0.5, y - 0.5, 8, 8);
+          g.fillStyle = colour;
+          g.fillRect(x, y + 7 * (1 - fill), 7, 7 * fill);
+        } else {
+          g.fillStyle = colour;
+          g.fillRect(x, y, 7, 7);
+          g.fillStyle = 'rgba(255,255,255,.35)';
+          g.fillRect(x, y, 7, 2);
+        }
       }
     }
 

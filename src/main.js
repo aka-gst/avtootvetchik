@@ -9,12 +9,12 @@
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
 import { createWorld, update } from './world.js';
-import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim } from './aim.js';
+import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
-import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, formFor, colourOf } from './daemons.js';
+import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, formFor, colourOf } from './daemons.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 
 const $ = (id) => document.getElementById(id);
@@ -75,7 +75,7 @@ const SFX_BY_EVENT = {
   impact: 'impact',
   'charge-start': 'charge',
   'daemon-windup': 'beamup',
-  shield: 'shield',
+  resist: 'resist',
   knock: 'knock',
   kill: 'kill',
   death: 'death',
@@ -89,6 +89,7 @@ const SFX_BY_EVENT = {
 let levelIndex = 0;
 let custom = false;
 let challenge = null;   /* чужой результат, если этаж открыт по ссылке */
+let locked = null;      /* цель, за которую держится прицел на клавиатуре */
 let level = CAMPAIGN[0];
 let world = null;
 let score = null;
@@ -248,6 +249,7 @@ function startLevel(next, { silent } = {}) {
   hideVeil();
   attempts += 1;
   result = null;
+  locked = null;
   score = createScore(level, attempts);
   if (!silent) audio.playTrack(level.track || 0);
   updateHud(true);
@@ -364,24 +366,31 @@ function buildIntent(raw) {
   }
 
   if (raw.aimStick !== null) {
+    locked = null;
+    world.locked = null;
     intent.aimAngle = assistAim(world, raw.aimStick, AIM_CONE.stick);
   } else if (!raw.touch && raw.mouse.moved) {
+    locked = null;
+    world.locked = null;
     const worldX = lastView.camX + (raw.mouse.x - canvas.clientWidth / 2) / lastView.zoom;
     const worldY = lastView.camY + (raw.mouse.y - canvas.clientHeight / 2) / lastView.zoom;
     intent.aimAngle = assistAim(world, Math.atan2(worldY - player.y, worldX - player.x), AIM_CONE.mouse);
-  } else if (raw.moveX || raw.moveY) {
-    /*
-     * Мышь не трогают — целимся туда, куда бежим, и доводим до цели.
-     * Это и есть игра «чисто с кнопок»: WASD ведёт, прицел идёт следом.
-     */
-    intent.aimAngle = assistAim(world, Math.atan2(raw.moveY, raw.moveX), AIM_CONE.run);
   } else {
     /*
-     * Стоим и не трогаем мышь. С набранной очередью смотрим дальше:
-     * демона надо куда-то выпустить, а повернуться в этой раскладке
-     * нечем — стрелки заняты набором.
+     * Мышь не трогают — значит, играют с клавиатуры, и прицел держится за
+     * живую цель сам. Бежать при этом можно куда угодно: направление бега
+     * больше не решает, куда смотрит игрок.
      */
-    intent.aimAngle = closeThreat(world, player.stack.length ? 300 : 130);
+    locked = lockTarget(world, locked, player.angle);
+    world.locked = locked;
+
+    if (locked) {
+      intent.aimAngle = Math.atan2(locked.y - player.y, locked.x - player.x);
+    } else if (raw.moveX || raw.moveY) {
+      intent.aimAngle = assistAim(world, Math.atan2(raw.moveY, raw.moveX), AIM_CONE.run);
+    } else {
+      intent.aimAngle = closeThreat(world, player.stack.length ? 300 : 130);
+    }
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */
@@ -411,7 +420,8 @@ function updateHud(force) {
 
   const player2 = world.player;
   const loaded = formFor(player2.stack);
-  const key = player2.stack.join('') + (player2.charging || '') + (player2.chargeLeft > 0 ? '+' : '');
+  const key = player2.stack.join('') + (player2.charging || '')
+    + (player2.chargeLeft > 0 ? Math.round((1 - player2.chargeLeft / CHARGE_STEP) * 6) : '');
 
   if (force || ui.stack.dataset.key !== key) {
     ui.stack.dataset.key = key;
@@ -421,14 +431,32 @@ function updateHud(force) {
       if (element) {
         slots += `<i style="background:${colourOf(element)};box-shadow:0 0 8px ${colourOf(element)}"></i>`;
       } else if (i === player2.stack.length && player2.chargeLeft > 0) {
-        slots += `<i class="is-charging" style="border-color:${colourOf(player2.charging)}"></i>`;
+        const fill = 1 - player2.chargeLeft / CHARGE_STEP;
+        slots += `<i class="is-charging" style="border-color:${colourOf(player2.charging)};`
+          + `background:linear-gradient(to top, ${colourOf(player2.charging)} ${Math.round(fill * 100)}%, transparent 0)"></i>`;
       } else {
         slots += '<i></i>';
       }
     }
     ui.stack.innerHTML = slots;
-    ui.form.textContent = loaded ? loaded.form.name : '';
-    ui.form.hidden = !loaded;
+
+    /*
+     * Подпись говорит две разные вещи и потому не молчит никогда: пока
+     * стихия набирается — её имя, как только легла — имя формы, которая
+     * вылетит. Раньше здесь было пусто ровно в тот момент, когда игрок
+     * больше всего хотел знать, что у него в руке.
+     */
+    if (player2.chargeLeft > 0) {
+      ui.form.textContent = `${ELEMENTS[player2.charging].name}…`;
+      ui.form.style.color = colourOf(player2.charging);
+      ui.form.hidden = false;
+    } else if (loaded) {
+      ui.form.textContent = loaded.form.name;
+      ui.form.style.color = '';
+      ui.form.hidden = false;
+    } else {
+      ui.form.hidden = true;
+    }
   }
 
   ui.kills.textContent = `${world.kills}/${world.total}`;
@@ -465,15 +493,15 @@ function updateHud(force) {
 function drainEvents() {
   for (const event of world.events) {
     const name = SFX_BY_EVENT[event.type];
-    if (name) audio.sfx(name);
+    if (name) audio.sfx(name, event);
 
     if (event.type === 'daemon') {
-      audio.sfx(event.form === 'beam' ? 'beam' : event.form === 'nova' ? 'nova' : 'zap');
+      audio.sfx(event.form === 'beam' ? 'beam' : event.form === 'nova' ? 'nova' : 'zap', event);
       if (event.form === 'nova') vibrate(30);
     } else if (event.type === 'backfire') {
       setToast('ВСПЫШКА В ТЕСНОТЕ — СВОИМ ЖЕ', 2.4);
-    } else if (event.type === 'shield') {
-      setToast('ЩИТ СОРВАН', 1.2);
+    } else if (event.type === 'resist') {
+      setToast(`${ELEMENTS[event.element].name} ЕГО НЕ БЕРЁТ — БЕЙ ДРУГИМ`, 1.8);
     }
 
     if (event.type === 'kill') {

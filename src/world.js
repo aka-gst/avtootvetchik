@@ -15,22 +15,27 @@
 
 import { TILE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
-import { FORMS, formFor, STACK_LIMIT, CHARGE_STEP, colourOf } from './daemons.js';
+import { FORMS, formFor, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './daemons.js';
 
 export const TILE_SIZE = 32;
 
 /* Радиус тела одинаков у всех: попадание должно читаться на глаз. */
 export const BODY = 9;
 
-/* Оружие врагов. У игрока его нет — он ходит с очередью демонов. */
+/*
+ * Чем воюют враги. Огнестрела здесь больше нет ни у кого: те, кто держал
+ * дистанцию, швыряются той же магией, что и игрок, — только одной стихией
+ * и без очереди. Так вся игра говорит на одном языке, и по цвету снаряда
+ * сразу видно, чем этого брать нельзя.
+ */
 export const WEAPONS = {
   bat: {
     id: 'bat', name: 'БИТА', kind: 'melee',
     reach: 38, arc: 2.0, cooldown: 0.27, lethal: true, noise: 110,
   },
-  pistol: {
-    id: 'pistol', name: 'ПИСТОЛЕТ', kind: 'gun',
-    cooldown: 0.19, clip: 12, speed: 820, spread: 0.03, noise: 460,
+  hex: {
+    id: 'hex', name: 'ПОРЧА', kind: 'gun',
+    cooldown: 0.9, clip: 99, speed: 560, spread: 0.05, noise: 380,
   },
 };
 
@@ -264,7 +269,7 @@ export function createWorld(level) {
     events: [],
   };
 
-  /* Носители: те же громилы, но под видимым щитом одной стихии. */
+  /* Носители: те же громилы, но со своей стихией — она их и защищает. */
   const SHIELD_BY_TYPE = { 7: 'fire', 8: 'water', 9: 'wind' };
 
   for (const entity of level.entities) {
@@ -276,7 +281,8 @@ export function createWorld(level) {
         kind: 'carrier',
         weapon: 'bat',
         ammo: 0,
-        shield: SHIELD_BY_TYPE[entity.type],
+        element: SHIELD_BY_TYPE[entity.type],
+        resist: SHIELD_BY_TYPE[entity.type],
         x, y, vx: 0, vy: 0,
         home: { x, y },
         angle: (entity.angle || 0) * (Math.PI / 4),
@@ -296,17 +302,26 @@ export function createWorld(level) {
     }
 
     if (entity.type === 0 || entity.type === 1) {
+      /*
+       * Стихия дальнобойного берётся из его клетки, а не из случая: этаж
+       * должен выглядеть одинаково при каждом заходе, иначе выученная
+       * комната перестаёт быть выученной.
+       */
+      const element = ELEMENT_ORDER[(entity.x + entity.y * 2) % ELEMENT_ORDER.length];
+
       world.enemies.push({
-        kind: entity.type === 0 ? 'thug' : 'shooter',
-        weapon: entity.type === 0 ? 'bat' : 'pistol',
-        ammo: entity.type === 0 ? 0 : 6,
+        kind: entity.type === 0 ? 'thug' : 'caster',
+        weapon: entity.type === 0 ? 'bat' : 'hex',
+        element: entity.type === 0 ? null : element,
+        /* Своя стихия не берёт: чем светится, тем его не убить. */
+        resist: entity.type === 0 ? null : element,
+        ammo: 99,
         x, y, vx: 0, vy: 0,
         home: { x, y },
         angle: (entity.angle || 0) * (Math.PI / 4),
         alive: true,
         downed: 0,
         stagger: 0,
-        shield: null,
         state: 'idle',
         think: rand(0, 1.2),
         heard: null,
@@ -343,6 +358,10 @@ function fireGun(world, shooter, from) {
     vy: Math.sin(angle) * weapon.speed,
     from,
     weapon: shooter.weapon,
+    /* Порча летит своей стихией: по цвету снаряда видно, чем этого не взять.
+       Заодно она не убивает союзника той же стойкости — и это честно. */
+    elements: shooter.element ? [shooter.element] : [],
+    colour: shooter.element ? colourOf(shooter.element) : null,
     life: BULLET_LIFE,
   });
 
@@ -411,7 +430,7 @@ function swingMelee(world, attacker, from) {
 
     if (target === world.player) {
       killPlayer(world, toTarget);
-    } else if (!shieldStops(world, target, toTarget)) {
+    } else if (!resisted(world, target, toTarget)) {
       /* Лежачего добивают даже кулаком — иначе сбитый враг бессмысленен. */
       if (weapon.lethal || target.downed > 0) {
         killEnemy(world, target, toTarget, 'melee', {
@@ -440,33 +459,26 @@ function swingMelee(world, attacker, from) {
 }
 
 /*
- * Щит. Он не здоровье: держит ровно один удар и гаснет вместе с ним —
- * носитель остаётся жив, но на треть секунды выключен. Свой демон снимает
- * щит и носителя разом.
+ * Стойкость. Не здоровье и не щит с зарядами: враг просто не берётся
+ * своей же стихией. Огнём по огненному — он её отобьёт, хоть одной, хоть
+ * тремя подряд; нужен любой другой цвет, и в смешанной очереди хватает
+ * одного чужого.
  *
- * Через эту дверь проходят все смертельные пути: удар, пуля, брошенная
- * бита, форма демона. Иначе щит однажды забыли бы в одном из них — и он
- * стал бы декорацией.
+ * Через эту дверь проходят все смертельные пути — удар, чужая порча,
+ * форма демона, — иначе правило однажды забыли бы в одном из них.
  */
-export function shieldStops(world, enemy, angle, source = {}) {
-  if (!enemy.shield) return false;
+export function resisted(world, enemy, angle, source = {}) {
+  if (!enemy.resist) return false;
 
   const elements = source.elements || [];
-  if (elements.includes(enemy.shield)) {
-    enemy.shield = null;
-    return false;
-  }
+  if (!elements.length) return false;              /* железо стойкость не разбирает */
+  if (elements.some((element) => element !== enemy.resist)) return false;
 
-  enemy.shield = null;
-  enemy.shieldFlash = 0.3;
-  enemy.stagger = 0.35;
-  enemy.hitFlash = 0.16;
-  enemy.vx += Math.cos(angle) * 90;
-  enemy.vy += Math.sin(angle) * 90;
-  pop(world, enemy.x, enemy.y, 17, '120,220,255');
-  spark(world, enemy.x, enemy.y, angle, 2.4, 12, '#9be7ff', 190);
-  world.fx.shake = Math.max(world.fx.shake, 5);
-  world.events.push({ type: 'shield' });
+  enemy.hitFlash = 0.12;
+  enemy.blocked = 0.3;
+  pop(world, enemy.x, enemy.y, 15, '255,255,255');
+  spark(world, enemy.x, enemy.y, angle + Math.PI, 1.4, 8, colourOf(enemy.resist), 160);
+  world.events.push({ type: 'resist', element: enemy.resist });
   return true;
 }
 
@@ -611,7 +623,7 @@ function castCone(world, form, elements, angle) {
     const toEnemy = Math.atan2(dy, dx);
     if (Math.abs(angleDelta(angle, toEnemy)) > form.arc / 2) continue;
     if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
-    if (shieldStops(world, enemy, toEnemy, { elements })) continue;
+    if (resisted(world, enemy, toEnemy, { elements })) continue;
     killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
   }
 
@@ -645,7 +657,7 @@ function castBeam(world, form, elements, angle) {
     for (const enemy of world.enemies) {
       if (!enemy.alive) continue;
       if (Math.hypot(enemy.x - x, enemy.y - y) > BODY + 2) continue;
-      if (shieldStops(world, enemy, angle, { elements })) continue;
+      if (resisted(world, enemy, angle, { elements })) continue;
       killEnemy(world, enemy, angle, 'daemon', { by: 'player', weapon: 'daemon', elements });
     }
 
@@ -677,7 +689,7 @@ function castNova(world, form, elements) {
     if (Math.hypot(dx, dy) > form.radius) continue;
     if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
     const toEnemy = Math.atan2(dy, dx);
-    if (shieldStops(world, enemy, toEnemy, { elements })) continue;
+    if (resisted(world, enemy, toEnemy, { elements })) continue;
     killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
   }
 
@@ -873,7 +885,7 @@ function updateEnemy(world, enemy, dt) {
   enemy.swing = Math.max(0, (enemy.swing || 0) - dt);
   enemy.flash = Math.max(0, (enemy.flash || 0) - dt);
   enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt);
-  enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
+  enemy.blocked = Math.max(0, (enemy.blocked || 0) - dt);
 
   /* Сорванный щит выключает носителя на треть секунды — окно для добивания. */
   if (enemy.stagger > 0) {
@@ -969,7 +981,7 @@ function updateBullets(world, dt) {
           if (!enemy.alive) continue;
           if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) >= BODY + 1) continue;
 
-          if (!shieldStops(world, enemy, angle, { elements: bullet.elements })) {
+          if (!resisted(world, enemy, angle, { elements: bullet.elements })) {
             killEnemy(world, enemy, angle, bullet.weapon === 'daemon' ? 'daemon' : 'bullet',
               { by: 'player', weapon: bullet.weapon, elements: bullet.elements });
           }
@@ -988,7 +1000,7 @@ function updateBullets(world, dt) {
         for (const enemy of world.enemies) {
           if (!enemy.alive || bullet.life <= 0) continue;
           if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) >= BODY + 1) continue;
-          if (!shieldStops(world, enemy, angle)) {
+          if (!resisted(world, enemy, angle, { elements: bullet.elements })) {
             killEnemy(world, enemy, angle, 'bullet', { by: 'enemy', weapon: bullet.weapon });
           }
           bullet.life = 0;

@@ -18,7 +18,7 @@
  */
 
 const STEP_PER_BAR = 16;
-const BPM = 126;
+const BPM = 108;
 
 export function createAudio() {
   let ctx = null;
@@ -64,9 +64,31 @@ export function createAudio() {
     musicFilter.frequency.value = 18000;
 
     musicBus = ctx.createGain();
-    musicBus.gain.value = 0.55;
+    musicBus.gain.value = 0.42;
     musicBus.connect(musicFilter);
     musicFilter.connect(master);
+
+    /*
+     * Короткое эхо с затуханием. Без него синтез звучит впритык к уху и
+     * давит — именно на это и жаловались. Свёртки нет, обходимся линией
+     * задержки: дёшево, а воздух появляется.
+     */
+    const delay = ctx.createDelay(1);
+    delay.delayTime.value = 0.33;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.32;
+    const echo = ctx.createGain();
+    echo.gain.value = 0.5;
+    const echoFilter = ctx.createBiquadFilter();
+    echoFilter.type = 'lowpass';
+    echoFilter.frequency.value = 2200;
+
+    musicBus.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(echoFilter);
+    echoFilter.connect(echo);
+    echo.connect(musicFilter);
 
     sfxBus = ctx.createGain();
     sfxBus.gain.value = 0.85;
@@ -127,6 +149,9 @@ export function createAudio() {
     osc.stop(ctx.currentTime + duration + 0.02);
   }
 
+  /* У каждой стихии свой голос: набор слышно, не глядя на экран. */
+  const PITCH = { fire: 220, water: 330, wind: 480 };
+
   const EFFECTS = {
     shot() { noise(0.16, 'highpass', 900, 0.55); tone('square', 320, 60, 0.14, 0.35); },
     swing() { noise(0.16, 'bandpass', 1500, 0.14, 1.2); },
@@ -148,18 +173,30 @@ export function createAudio() {
     ui() { tone('square', 300, 520, 0.06, 0.16); },
 
     /* Демоны: набор ползёт вверх, выстрел щёлкает, луч гудит, вспышка бьёт. */
-    charge() { tone('triangle', 320, 620, 0.16, 0.2); },
-    zap() { tone('sawtooth', 900, 180, 0.14, 0.3); noise(0.1, 'highpass', 1800, 0.25); },
+    charge(detail) {
+      const base = PITCH[detail && detail.element] || 320;
+      tone('triangle', base, base * 2, 0.13, 0.2);
+    },
+    zap(detail) {
+      const base = PITCH[detail && detail.elements && detail.elements[0]] || 320;
+      tone('sawtooth', base * 4, base, 0.13, 0.28);
+      noise(0.08, 'highpass', 2200, 0.18);
+    },
+    /* Отбитая стихия: глухой шлепок и звон — ни с попаданием, ни с промахом
+       это спутать нельзя, а именно тут игрок и не понимает, что произошло. */
+    resist() {
+      tone('square', 760, 300, 0.16, 0.26);
+      noise(0.22, 'bandpass', 1300, 0.3, 5);
+    },
     beamup() { tone('sawtooth', 180, 900, 0.26, 0.22); },
     beam() { tone('sawtooth', 1200, 300, 0.4, 0.4); noise(0.35, 'bandpass', 2400, 0.3, 3); },
     nova() { tone('sine', 320, 40, 0.5, 0.7); noise(0.45, 'lowpass', 1400, 0.6); },
-    shield() { noise(0.35, 'highpass', 2200, 0.4, 8); tone('square', 1400, 400, 0.16, 0.2); },
   };
 
-  function sfx(name) {
+  function sfx(name, detail) {
     if (muted || !ensure() || ctx.state !== 'running') return;
     const effect = EFFECTS[name];
-    if (effect) effect();
+    if (effect) effect(detail);
   }
 
 
@@ -176,17 +213,36 @@ export function createAudio() {
     stopSynth();
 
     const seconds = 60 / BPM / 4;
-    const bassLines = [
+
+    /*
+     * Трек длиной в 32 такта, а не в четыре.
+     *
+     * Раньше он повторялся каждые несколько секунд и оттого давил: ухо
+     * успевало выучить петлю и начинало её ждать. Теперь есть гармония из
+     * четырёх ступеней, которая меняется раз в четыре такта, и разделы —
+     * где-то только бас, где-то с барабаном, где-то пусто. Пустые такты
+     * важнее полных: тишина и делает громкое громким.
+     */
+    const DEGREES = [0, -3, -5, -7];           /* минорный ход вниз */
+    const SECTIONS = [
+      /* такты 0–7 */   { drums: false, bass: true, arp: false, pad: true },
+      /* такты 8–15 */  { drums: true, bass: true, arp: false, pad: true },
+      /* такты 16–23 */ { drums: true, bass: true, arp: true, pad: false },
+      /* такты 24–31 */ { drums: false, bass: false, arp: true, pad: true },
+    ];
+
+    const BASS = [
       [0, 0, 7, 0, 5, 0, 3, 0],
       [0, 3, 5, 3, 7, 5, 3, 0],
     ];
+
     const root = [55, 49, 58, 46][trackId % 4];
     let step = 0;
     let next = ctx.currentTime + 0.06;
 
     const bus = ctx.createGain();
     bus.gain.value = 0.0001;
-    bus.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 1.2);
+    bus.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 1.6);
     bus.connect(musicBus);
 
     function note(type, frequency, at, duration, gain, filter) {
@@ -196,14 +252,14 @@ export function createAudio() {
 
       const envelope = ctx.createGain();
       envelope.gain.setValueAtTime(0.0001, at);
-      envelope.gain.exponentialRampToValueAtTime(gain, at + 0.008);
+      envelope.gain.exponentialRampToValueAtTime(gain, at + 0.012);
       envelope.gain.exponentialRampToValueAtTime(0.0001, at + duration);
 
       if (filter) {
         const low = ctx.createBiquadFilter();
         low.type = 'lowpass';
         low.frequency.setValueAtTime(filter, at);
-        low.Q.value = 8;
+        low.Q.value = 6;
         osc.connect(low);
         low.connect(envelope);
       } else {
@@ -212,7 +268,32 @@ export function createAudio() {
 
       envelope.connect(bus);
       osc.start(at);
-      osc.stop(at + duration + 0.02);
+      osc.stop(at + duration + 0.05);
+    }
+
+    /* Пад держит гармонию и даёт тот воздух, которого не хватало. */
+    function pad(frequency, at, duration) {
+      for (const detune of [-4, 4]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(frequency, at);
+        osc.detune.setValueAtTime(detune, at);
+
+        const envelope = ctx.createGain();
+        envelope.gain.setValueAtTime(0.0001, at);
+        envelope.gain.exponentialRampToValueAtTime(0.055, at + duration * 0.4);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+
+        const low = ctx.createBiquadFilter();
+        low.type = 'lowpass';
+        low.frequency.setValueAtTime(900 + intensity * 1200, at);
+
+        osc.connect(low);
+        low.connect(envelope);
+        envelope.connect(bus);
+        osc.start(at);
+        osc.stop(at + duration + 0.1);
+      }
     }
 
     function percussion(at, kind) {
@@ -222,28 +303,26 @@ export function createAudio() {
 
       const filter = ctx.createBiquadFilter();
       const envelope = ctx.createGain();
-
       let tail;
 
       if (kind === 'hat') {
         filter.type = 'highpass';
-        filter.frequency.value = 7000;
-        envelope.gain.setValueAtTime(0.16, at);
-        envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.045);
-        tail = 0.07;
+        filter.frequency.value = 8000;
+        envelope.gain.setValueAtTime(0.075, at);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+        tail = 0.06;
       } else {
         filter.type = 'bandpass';
-        filter.frequency.value = 1800;
-        filter.Q.value = 0.8;
-        envelope.gain.setValueAtTime(0.32, at);
-        envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.18);
-        tail = 0.2;
+        filter.frequency.value = 1600;
+        filter.Q.value = 0.7;
+        envelope.gain.setValueAtTime(0.18, at);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+        tail = 0.18;
       }
 
       source.connect(filter);
       filter.connect(envelope);
       envelope.connect(bus);
-      /* stop только после start: иначе узел бросает InvalidStateError и такт молчит. */
       source.start(at);
       source.stop(at + tail);
     }
@@ -251,40 +330,50 @@ export function createAudio() {
     function kick(at) {
       const osc = ctx.createOscillator();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(140, at);
-      osc.frequency.exponentialRampToValueAtTime(42, at + 0.12);
+      osc.frequency.setValueAtTime(120, at);
+      osc.frequency.exponentialRampToValueAtTime(44, at + 0.13);
 
       const envelope = ctx.createGain();
-      envelope.gain.setValueAtTime(0.9, at);
-      envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.28);
+      envelope.gain.setValueAtTime(0.55, at);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.3);
 
       osc.connect(envelope);
       envelope.connect(bus);
       osc.start(at);
-      osc.stop(at + 0.3);
+      osc.stop(at + 0.32);
     }
 
     function schedule() {
       while (next < ctx.currentTime + 0.15) {
         const inBar = step % STEP_PER_BAR;
-        const bar = Math.floor(step / STEP_PER_BAR);
-        const line = bassLines[Math.floor(bar / 4) % bassLines.length];
+        const bar = Math.floor(step / STEP_PER_BAR) % 32;
+        const section = SECTIONS[Math.floor(bar / 8)];
+        const degree = DEGREES[Math.floor(bar / 4) % DEGREES.length];
+        const base = root * Math.pow(2, degree / 12);
 
-        if (inBar % 4 === 0) kick(next);
-        if (inBar === 4 || inBar === 12) percussion(next, 'snare');
-        if (inBar % 2 === 1) percussion(next, 'hat');
+        if (section.pad && inBar === 0) pad(base * 2, next, seconds * 14);
 
-        if (inBar % 2 === 0) {
-          const semitone = line[(inBar / 2) % line.length];
-          note('sawtooth', root * Math.pow(2, semitone / 12), next, seconds * 1.7, 0.34,
-            520 + intensity * 900);
+        if (section.drums) {
+          if (inBar === 0 || inBar === 6 || inBar === 10) kick(next);
+          if (inBar === 8) percussion(next, 'snare');
+          if (inBar % 4 === 2) percussion(next, 'hat');
+        } else if (inBar === 0) {
+          kick(next);
         }
 
-        /* Аркада поверх включается со второго такта — вступление должно дышать. */
-        if (bar % 4 >= 1 && inBar % 2 === 1) {
-          const semitone = [12, 15, 19, 22][(step / 1) % 4 | 0] || 12;
-          note('square', root * 2 * Math.pow(2, semitone / 12), next, seconds * 0.9,
-            0.06 + intensity * 0.07, 2400);
+        if (section.bass && inBar % 2 === 0) {
+          const line = BASS[Math.floor(bar / 8) % BASS.length];
+          const semitone = line[(inBar / 2) % line.length];
+          note('sawtooth', base * Math.pow(2, semitone / 12), next, seconds * 1.6, 0.26,
+            420 + intensity * 1100);
+        }
+
+        /* Аркада входит только в своей части — иначе она и есть то самое давление. */
+        if (section.arp && inBar % 2 === 1) {
+          const shape = [12, 15, 19, 22, 19, 15];
+          const semitone = shape[Math.floor(step / 1) % shape.length];
+          note('square', base * 2 * Math.pow(2, semitone / 12), next, seconds * 0.8,
+            0.045 + intensity * 0.05, 2600);
         }
 
         next += seconds;
