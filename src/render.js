@@ -57,8 +57,18 @@ export function createRenderer(canvas) {
   let viewH = 0;
   let bakedFor = null;
 
+  /*
+   * Сравнивать здесь надо со своим же состоянием, а не с размером элемента
+   * в вёрстке: холст растянут на весь экран правилом inset: 0, и его CSS-размер
+   * совпадает с окном всегда — даже когда буфер под рисование остался
+   * дефолтным 300×150. На этом однажды и попались: игра шла, часы тикали,
+   * а мир рисовался в углу экрана.
+   */
   function resize(cssW, cssH, ratio) {
-    dpr = Math.min(ratio || 1, 2.5);
+    const next = Math.min(ratio || 1, 2.5);
+    if (viewW === cssW && viewH === cssH && dpr === next) return;
+
+    dpr = next;
     viewW = cssW;
     viewH = cssH;
     canvas.width = Math.round(cssW * dpr);

@@ -526,7 +526,7 @@ function resize() {
   const width = window.innerWidth || document.documentElement.clientWidth;
   const height = window.innerHeight || document.documentElement.clientHeight;
   if (width < 1 || height < 1) return;
-  if (canvas.clientWidth === width && canvas.clientHeight === height) return;
+  /* Повтор ничего не стоит: холст сам отбросит вызов, если размер тот же. */
   renderer.resize(width, height, window.devicePixelRatio || 1);
 }
 
