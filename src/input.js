@@ -202,7 +202,7 @@ export function createInput(surface) {
       moveY: 0,
       aimStick: null,
       attackHeld: mouse.down || buttons.attack
-        || keys.has('Enter') || keys.has('KeyJ') || keys.has('ShiftRight'),
+        || keys.has('Space') || keys.has('Enter') || keys.has('KeyJ'),
       touch: touchMode,
       mouse,
       sticks,

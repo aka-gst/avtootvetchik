@@ -184,7 +184,7 @@ function setToast(text, seconds = 2) {
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНОВ — УДАР ИХ ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ. СТРЕЛКИ НАБИРАЮТ ДЕМОНОВ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР. ПРОБЕЛ — ПОДОБРАТЬ, ↓ — БРОСИТЬ. ⏎ ИЛИ ЛКМ — УДАР И ВЫПУСК ДЕМОНА; ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, БЬЁТ САМ. R — ЗАНОВО.';
+    : 'WASD — ИДТИ, ПРОБЕЛ — УДАР И ВЫПУСК ДЕМОНА. СТРЕЛКИ НАБИРАЮТ: ← ОГОНЬ, ↑ ВОДА, → ВЕТЕР, ↓ — БРОСИТЬ. E — ПОДОБРАТЬ, R — ЗАНОВО. ПО ТОМУ, КТО УЖЕ БЕЖИТ НА ТЕБЯ, УДАР ИДЁТ САМ.';
 }
 
 
@@ -298,8 +298,13 @@ function buildIntent(raw) {
     aimAngle: null,
     attack: false,
     charge: null,
-    /* Пробел берёт с пола, стрелка вниз бросает — обе под правой рукой. */
-    pickup: input.tookKey('Space') || input.tookKey('KeyE') || input.tookKey('Pickup'),
+    /*
+     * Пробел бьёт — он под большим пальцем той руки, что уже на стрелках.
+     * Подбор ушёл на E, к левой руке: он нужен реже удара, и лишний палец
+     * правой руки на него не найдётся. Вверх остаётся водой — трём
+     * стихиям нужны три стрелки.
+     */
+    pickup: input.tookKey('KeyE') || input.tookKey('Pickup'),
     throw: input.tookKey('ArrowDown') || input.tookKey('KeyQ') || input.tookKey('Throw'),
     dump: input.tookKey('Backspace') || input.tookKey('Digit0'),
   };
@@ -331,7 +336,8 @@ function buildIntent(raw) {
   }
 
   /* Удержание — это очередь ударов, а не один: темп задаёт откат оружия. */
-  const fired = input.tookKey('Fire') || input.tookKey('Enter') || input.tookKey('KeyJ');
+  const fired = input.tookKey('Fire') || input.tookKey('Space')
+    || input.tookKey('Enter') || input.tookKey('KeyJ');
   intent.attack = fired || raw.attackHeld;
 
   /*

@@ -56,12 +56,14 @@ check('стрелки не ходят даже без WASD',
 fire(windowListeners, 'keyup', { code: 'ArrowLeft' });
 input.endFrame();
 
-/* Пробел ушёл на «подобрать» — держать удар он больше не должен. */
+/* Удар вернулся на пробел: он под большим пальцем правой руки. */
 fire(windowListeners, 'keydown', { code: 'Space', repeat: false });
 state = input.read();
-check('пробел больше не бьёт', state.attackHeld === false);
-check('пробел приходит нажатием', input.tookKey('Space') === true);
+check('пробел держит удар', state.attackHeld === true);
+check('пробел приходит и нажатием', input.tookKey('Space') === true);
 fire(windowListeners, 'keyup', { code: 'Space' });
+state = input.read();
+check('отпущенный пробел удар отпускает', state.attackHeld === false);
 
 fire(windowListeners, 'keydown', { code: 'Enter', repeat: false });
 state = input.read();
