@@ -16,6 +16,7 @@ import { CAMPAIGN } from '../src/levels.js';
 import { createWorld, update, WEAPONS, TILE_SIZE, hasSight, tileIndex } from '../src/world.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat, meleeSnap } from '../src/aim.js';
+import { CHARGE_STEP, shapeOf, formFor } from '../src/daemons.js';
 import { buildFlowField } from '../src/ai.js';
 import { blocksMove } from '../src/level.js';
 
@@ -317,6 +318,175 @@ function nearest(world) {
   update(world, DT, { moveX: 0, moveY: 0, aimAngle: finalAngle, attack: true });
   check('стоя без движения, удар по соседу засчитан', !near.alive,
     near.alive ? 'враг цел' : 'враг убит');
+}
+
+/* --- E4. Демоны: узоры, щиты, своя же вспышка --- */
+{
+  check('одна стихия — плевок', shapeOf(['therm']).id === 'spit');
+  check('две одинаковые — сгусток', shapeOf(['ice', 'ice']).id === 'bolt');
+  check('две разные — выдох', shapeOf(['ice', 'therm']).id === 'cone');
+  check('три одинаковые — луч', shapeOf(['therm', 'therm', 'therm']).id === 'beam');
+  check('края одинаковые — пробой', shapeOf(['therm', 'ice', 'therm']).id === 'pierce');
+  check('три разные — вспышка', shapeOf(['therm', 'ice', 'surge']).id === 'nova');
+  check('две и третья — залп, а не пустота', shapeOf(['therm', 'therm', 'ice']).id === 'shard');
+  check('форма несёт все свои стихии',
+    formFor(['therm', 'ice', 'therm']).elements.sort().join() === 'ice,therm');
+
+  /* Набор стоит времени и скорости. */
+  const world = createWorld(CAMPAIGN[0]);
+  const player = world.player;
+  const charging = { ...idle, charge: 'therm' };
+
+  update(world, DT, charging);
+  check('набор занимает слот не мгновенно', player.stack.length === 0 && player.chargeLeft > 0);
+
+  let waited = DT;
+  while (player.chargeLeft > 0 && waited < 1) { update(world, DT, idle); waited += DT; }
+  check('стихия ложится в очередь через шаг набора',
+    player.stack.length === 1 && Math.abs(waited - CHARGE_STEP) < 0.05,
+    `${waited.toFixed(2)} с при шаге ${CHARGE_STEP}`);
+
+  /* Замедление во время набора — это и есть цена. */
+  const runFree = createWorld(CAMPAIGN[0]);
+  for (let i = 0; i < 20; i += 1) update(runFree, DT, { ...idle, moveX: 1 });
+  const freeSpeed = Math.hypot(runFree.player.vx, runFree.player.vy);
+
+  const runCharging = createWorld(CAMPAIGN[0]);
+  update(runCharging, DT, { ...idle, moveX: 1, charge: 'ice' });
+  for (let i = 0; i < 12; i += 1) update(runCharging, DT, { ...idle, moveX: 1 });
+  const slowSpeed = Math.hypot(runCharging.player.vx, runCharging.player.vy);
+  check('во время набора игрок медленнее', slowSpeed < freeSpeed * 0.7,
+    `${slowSpeed | 0} против ${freeSpeed | 0}`);
+}
+
+/* --- E5. Щит носителя --- */
+{
+  const world = createWorld(CAMPAIGN[1]);
+  const player = world.player;
+  const carrier = world.enemies.find((e) => e.shield === 'ice');
+  check('на втором этаже есть носитель льда', Boolean(carrier));
+
+  player.weapon = 'bat';
+  player.x = carrier.x - 20;
+  player.y = carrier.y;
+  player.angle = 0;
+  player.cooldown = 0;
+  update(world, DT, { ...idle, attack: true });
+  check('бита срывает щит, но не убивает', carrier.alive && carrier.shield === null,
+    `жив=${carrier.alive} щит=${carrier.shield}`);
+  check('носитель на секунду выключен', carrier.stagger > 0);
+
+  /* Чужой демон щит тоже только срывает. */
+  const second = createWorld(CAMPAIGN[1]);
+  const other = second.enemies.find((e) => e.shield === 'ice');
+  second.player.x = other.x - 40;
+  second.player.y = other.y;
+  second.player.angle = 0;
+  second.player.stack = ['therm'];
+  update(second, DT, { ...idle, aimAngle: 0, attack: true });
+  for (let i = 0; i < 20; i += 1) update(second, DT, idle);
+  check('чужая стихия щит срывает, носителя не берёт',
+    other.alive && other.shield === null, `жив=${other.alive}`);
+
+  /* Свой — снимает щит и носителя разом. */
+  const third = createWorld(CAMPAIGN[1]);
+  const matched = third.enemies.find((e) => e.shield === 'ice');
+  third.player.x = matched.x - 40;
+  third.player.y = matched.y;
+  third.player.angle = 0;
+  third.player.stack = ['ice'];
+  update(third, DT, { ...idle, aimAngle: 0, attack: true });
+  for (let i = 0; i < 20; i += 1) update(third, DT, idle);
+  check('свой демон снимает щит вместе с носителем', !matched.alive);
+}
+
+/* --- E6. Вспышка не разбирает своих --- */
+{
+  /* В тесноте: игрока ставим в однотайловый проход второго этажа. */
+  const tight = createWorld(CAMPAIGN[1]);
+  tight.player.x = 6 * 32 + 16;
+  tight.player.y = 13 * 32 + 16;
+  tight.player.stack = ['therm', 'ice', 'surge'];
+  update(tight, DT, { ...idle, attack: true });
+  check('вспышка в узком проходе достаёт и того, кто её выпустил',
+    !tight.player.alive, tight.player.alive ? 'игрок цел' : 'игрок убит');
+
+  /* На открытом месте — нет. */
+  const open = createWorld(CAMPAIGN[1]);
+  open.player.x = 17 * 32 + 16;
+  open.player.y = 10 * 32 + 16;
+  open.player.stack = ['therm', 'ice', 'surge'];
+  update(open, DT, { ...idle, attack: true });
+  check('в зале вспышка безопасна для своего', open.player.alive);
+}
+
+/* --- E7. Цена очереди в числах --- */
+{
+  /*
+   * Соседняя сессия предупредила: механику, которая выглядит наградой,
+   * ловит не глаз, а счёт. Здесь и ловится — первая же версия показала,
+   * что взмах биты убивал всех в секторе и делал очередь бессмысленной.
+   *
+   * Правило, которое проверяем: до трёх врагов быстрее ударить, с четырёх
+   * окупается набор. Иначе одна из двух механик — мёртвый груз.
+   */
+  const clearTime = (count, style) => {
+    const world = createWorld(CAMPAIGN[0]);
+    const player = world.player;
+    const marked = [];
+
+    for (const enemy of world.enemies) enemy.alive = false;
+    for (let i = 0; i < count; i += 1) {
+      const enemy = world.enemies[i];
+      const angle = -Math.PI / 2 + (i - (count - 1) / 2) * 0.5;
+      enemy.alive = true;
+      enemy.downed = 9999;      /* обездвижены: меряем цену оружия, а не бой */
+      enemy.shield = null;
+      enemy.x = player.x + Math.cos(angle) * 34;
+      enemy.y = player.y + Math.sin(angle) * 34;
+      marked.push(enemy);
+    }
+
+    player.weapon = style === 'bat' ? 'bat' : 'fists';
+    const queue = ['therm', 'ice', 'surge'];
+    let t = 0;
+
+    while (t < 8 && marked.some((e) => e.alive)) {
+      const target = marked.find((e) => e.alive);
+      const intent = {
+        ...idle,
+        aimAngle: Math.atan2(target.y - player.y, target.x - player.x),
+      };
+
+      if (style === 'bat') intent.attack = true;
+      else if (player.stack.length < 3 && player.chargeLeft <= 0) intent.charge = queue[player.stack.length];
+      else if (player.stack.length === 3) intent.attack = true;
+
+      update(world, DT, intent);
+      t += DT;
+    }
+
+    return marked.some((e) => e.alive) ? Infinity : t;
+  };
+
+  const oneBat = clearTime(1, 'bat');
+  const oneNova = clearTime(1, 'nova');
+  check('на одном враге удар быстрее очереди', oneBat < oneNova,
+    `${oneBat.toFixed(2)} против ${oneNova.toFixed(2)}`);
+
+  const crowdBat = clearTime(5, 'bat');
+  const crowdNova = clearTime(5, 'nova');
+  check('на толпе очередь окупается', crowdNova < crowdBat,
+    `${crowdNova.toFixed(2)} против ${crowdBat.toFixed(2)}`);
+
+  const threeBat = clearTime(3, 'bat');
+  const threeNova = clearTime(3, 'nova');
+  check('перелом приходится на три-четыре цели', threeBat < threeNova && crowdNova < crowdBat,
+    `трое: ${threeBat.toFixed(2)} против ${threeNova.toFixed(2)}`);
+
+  check('один взмах не убивает двоих',
+    clearTime(2, 'bat') > clearTime(1, 'bat') + 0.2,
+    `${clearTime(2, 'bat').toFixed(2)} против ${clearTime(1, 'bat').toFixed(2)}`);
 }
 
 /* --- F. Производительность шага --- */

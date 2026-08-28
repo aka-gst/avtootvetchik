@@ -50,6 +50,14 @@ export const ENTITY = {
   W_PISTOL: 4,  /* пистолет на полу */
   W_SHOTGUN: 5, /* зарезервировано */
   CIVIL: 6,     /* зарезервировано */
+
+  /*
+   * Носители щита. Номера добавлены после первых кодов — старые строки
+   * от этого не поехали, потому что номер значит одно и то же навсегда.
+   */
+  CARRIER_THERM: 7,
+  CARRIER_ICE: 8,
+  CARRIER_SURGE: 9,
 };
 
 /* Экранный словарь для рисования уровней руками. */
@@ -68,6 +76,9 @@ const CHAR_ENTITY = {
   s: ENTITY.SHOOTER,
   b: ENTITY.W_BAT,
   p: ENTITY.W_PISTOL,
+  f: ENTITY.CARRIER_THERM,
+  i: ENTITY.CARRIER_ICE,
+  r: ENTITY.CARRIER_SURGE,
 };
 
 export function blocksMove(tile) {

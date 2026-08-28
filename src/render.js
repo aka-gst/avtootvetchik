@@ -14,6 +14,7 @@
 
 import { TILE } from './level.js';
 import { TILE_SIZE, BODY, WEAPONS } from './world.js';
+import { colourOf } from './daemons.js';
 
 /*
  * Пол светлее стен, а не наоборот. Первый вариант палитры был собран
@@ -35,6 +36,22 @@ export const THEMES = [
     tableEdge: '#ff9b52',
     glass: '#7ad9ff',
     haze: '#ff2d95',
+  },
+
+  /* Серверная: холоднее и жёстче бара — здесь светится не вывеска, а стойки. */
+  {
+    name: 'серверная',
+    floor: '#10222e',
+    floorAlt: '#142a38',
+    grout: '#07131b',
+    wall: '#050b12',
+    wallTop: '#0d1a26',
+    wallEdge: '#4de1ff',
+    rug: '#123a4a',
+    table: '#1b2b34',
+    tableEdge: '#7ad9ff',
+    glass: '#9be7ff',
+    haze: '#4de1ff',
   },
 ];
 
@@ -311,6 +328,7 @@ export function createRenderer(canvas) {
     drawEnemies(ctx, world);
     drawPlayer(ctx, world);
     drawBullets(ctx, world);
+    drawBlasts(ctx, world);
     drawPops(ctx, world);
     drawParticles(ctx, world);
     ctx.drawImage(walls, 0, 0);
@@ -462,6 +480,19 @@ export function createRenderer(canvas) {
 
       const palette = PALETTE[enemy.kind] || PALETTE.thug;
 
+      /* Щит видно всегда: по нему и читается, чем этого брать. */
+      if (enemy.shield) {
+        const colour = colourOf(enemy.shield);
+        const pulse = 0.45 + Math.sin(world.time * 6 + enemy.home.x) * 0.18;
+        g.strokeStyle = hexToRgba(colour, pulse);
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(enemy.x, enemy.y, BODY + 6, 0, 6.29);
+        g.stroke();
+        g.fillStyle = hexToRgba(colour, 0.12);
+        g.fill();
+      }
+
       if (enemy.downed > 0) {
         g.save();
         g.globalAlpha = 0.85;
@@ -555,6 +586,38 @@ export function createRenderer(canvas) {
       g.stroke();
     }
 
+    /*
+     * Очередь рисуется над головой, а не только в углу экрана: заряженный
+     * игрок должен быть виден как угроза — и себе, и в записи чужого боя.
+     */
+    if (player.stack.length || player.chargeLeft > 0) {
+      const total = player.stack.length + (player.chargeLeft > 0 ? 1 : 0);
+      const width = total * 7 - 2;
+      for (let i = 0; i < total; i += 1) {
+        const element = player.stack[i] || player.charging;
+        const filling = i >= player.stack.length;
+        const x = player.x - width / 2 + i * 7;
+        const y = player.y - BODY - 12;
+        g.fillStyle = filling
+          ? hexToRgba(colourOf(element), 0.35 + Math.sin(world.time * 30) * 0.25)
+          : colourOf(element);
+        g.fillRect(x, y, 5, 5);
+      }
+    }
+
+    /* Замах луча: линию видно заранее — и игроку, и тому, кто на ней стоит. */
+    if (player.windup > 0 && player.pending) {
+      const colour = colourOf(player.pending.elements[0]);
+      g.strokeStyle = hexToRgba(colour, 0.35 + Math.sin(world.time * 40) * 0.2);
+      g.lineWidth = 2;
+      g.setLineDash([6, 6]);
+      g.beginPath();
+      g.moveTo(player.x, player.y);
+      g.lineTo(player.x + Math.cos(player.angle) * 900, player.y + Math.sin(player.angle) * 900);
+      g.stroke();
+      g.setLineDash([]);
+    }
+
     if (player.flash > 0) {
       g.fillStyle = 'rgba(255,240,180,.95)';
       g.beginPath();
@@ -569,13 +632,63 @@ export function createRenderer(canvas) {
       g.save();
       g.translate(bullet.x, bullet.y);
       g.rotate(angle);
-      g.fillStyle = bullet.from === 'player' ? '#fff6c9' : '#ff8f6b';
-      g.fillRect(-9, -1, 12, 2);
+      g.fillStyle = bullet.colour || (bullet.from === 'player' ? '#fff6c9' : '#ff8f6b');
+      g.fillRect(-9, -1.5, 12, 3);
       g.globalAlpha = 0.35;
       g.fillRect(-22, -0.5, 16, 1);
       g.restore();
       g.globalAlpha = 1;
     }
+  }
+
+  /*
+   * Формы демонов живут доли секунды, поэтому рисуются поверх всего: их
+   * задача — не украсить кадр, а объяснить, что именно сейчас произошло.
+   */
+  function drawBlasts(g, world) {
+    for (const blast of world.blasts) {
+      const t = 1 - blast.life / blast.span;
+      const fade = 1 - t;
+
+      if (blast.kind === 'cone') {
+        g.beginPath();
+        g.moveTo(blast.x, blast.y);
+        g.arc(blast.x, blast.y, blast.reach * (0.6 + t * 0.4),
+          blast.angle - blast.arc / 2, blast.angle + blast.arc / 2);
+        g.closePath();
+        g.fillStyle = hexToRgba(blast.colour, fade * 0.45);
+        g.fill();
+        continue;
+      }
+
+      if (blast.kind === 'beam') {
+        g.strokeStyle = hexToRgba(blast.colour, fade);
+        g.lineWidth = 10 * fade + 2;
+        g.beginPath();
+        g.moveTo(blast.x, blast.y);
+        g.lineTo(blast.x2, blast.y2);
+        g.stroke();
+        g.strokeStyle = `rgba(255,255,255,${fade})`;
+        g.lineWidth = 3 * fade + 1;
+        g.stroke();
+        continue;
+      }
+
+      if (blast.kind === 'nova') {
+        g.strokeStyle = `rgba(255,255,255,${fade})`;
+        g.lineWidth = 6 * fade + 1;
+        g.beginPath();
+        g.arc(blast.x, blast.y, blast.radius * (0.3 + t * 0.8), 0, 6.29);
+        g.stroke();
+        g.fillStyle = `rgba(255,255,255,${fade * 0.18})`;
+        g.fill();
+      }
+    }
+  }
+
+  function hexToRgba(hex, alpha) {
+    const value = parseInt(hex.slice(1), 16);
+    return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
   }
 
   function drawPops(g, world) {

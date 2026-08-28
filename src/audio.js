@@ -146,6 +146,14 @@ export function createAudio() {
     step() { noise(0.05, 'lowpass', 380, 0.11); },
     exit() { tone('triangle', 520, 1040, 0.35, 0.3); },
     ui() { tone('square', 300, 520, 0.06, 0.16); },
+
+    /* Демоны: набор ползёт вверх, выстрел щёлкает, луч гудит, вспышка бьёт. */
+    charge() { tone('triangle', 320, 620, 0.16, 0.2); },
+    zap() { tone('sawtooth', 900, 180, 0.14, 0.3); noise(0.1, 'highpass', 1800, 0.25); },
+    beamup() { tone('sawtooth', 180, 900, 0.26, 0.22); },
+    beam() { tone('sawtooth', 1200, 300, 0.4, 0.4); noise(0.35, 'bandpass', 2400, 0.3, 3); },
+    nova() { tone('sine', 320, 40, 0.5, 0.7); noise(0.45, 'lowpass', 1400, 0.6); },
+    shield() { noise(0.35, 'highpass', 2200, 0.4, 8); tone('square', 1400, 400, 0.16, 0.2); },
   };
 
   function sfx(name) {

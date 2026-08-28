@@ -156,12 +156,23 @@ export function createInput(surface) {
   function bindButton(element, name) {
     if (!element) return;
 
+    /* Имя кнопки прямо переводится в имя нажатия — новые кнопки не требуют
+       правок в этом месте. */
+    const CODE = {
+      attack: 'Fire',
+      pickup: 'Pickup',
+      throw: 'Throw',
+      therm: 'Digit1',
+      ice: 'Digit2',
+      surge: 'Digit3',
+    };
+
     const press = (event) => {
       event.preventDefault();
       event.stopPropagation();
       touchMode = true;
       buttons[name] = true;
-      pressed.add(name === 'attack' ? 'Fire' : name === 'pickup' ? 'Pickup' : 'Throw');
+      pressed.add(CODE[name] || name);
       element.classList.add('is-held');
     };
 

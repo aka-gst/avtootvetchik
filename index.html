@@ -50,6 +50,13 @@
     <span id="combo" class="combo" hidden><b>×2</b><i></i></span>
   </div>
 
+  <!-- Очередь демонов и форма, которая из неё соберётся. -->
+  <div class="hud-slot hud-stack">
+    <span class="hud-label">ОЧЕРЕДЬ</span>
+    <span id="stack" class="stack"><i></i><i></i><i></i></span>
+    <b id="form" class="form" hidden></b>
+  </div>
+
 </header>
 
 <button type="button" id="mute" class="mute" data-off="0">ЗВУК ВКЛ</button>
@@ -62,6 +69,14 @@
   <button type="button" id="btnThrow" class="pad-key pad-small">БРОСИТЬ</button>
   <button type="button" id="btnPickup" class="pad-key pad-small">ВЗЯТЬ</button>
   <button type="button" id="btnAttack" class="pad-key pad-big">БИТЬ</button>
+</div>
+
+<!-- Стихии стоят отдельной колонкой слева: набирать их приходится на бегу,
+     и большой палец правой руки в этот момент занят прицелом. -->
+<div id="daemons" class="daemons" aria-hidden="true">
+  <button type="button" id="btn-therm" class="pad-key daemon-key" data-element="therm">Т</button>
+  <button type="button" id="btn-ice" class="pad-key daemon-key" data-element="ice">Л</button>
+  <button type="button" id="btn-surge" class="pad-key daemon-key" data-element="surge">Р</button>
 </div>
 
 <div id="ghostMove" class="ghost" hidden><i></i></div>

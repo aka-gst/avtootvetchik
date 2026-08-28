@@ -11,6 +11,7 @@
 
 import { TILE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
+import { FORMS, formFor, STACK_LIMIT, CHARGE_STEP, colourOf } from './daemons.js';
 
 export const TILE_SIZE = 32;
 
@@ -230,6 +231,13 @@ export function createWorld(level) {
       cooldown: 0,
       swing: 0,
       step: 0,
+
+      /* Очередь демонов: что набрано, что набирается, что вот-вот вылетит. */
+      stack: [],
+      charging: null,
+      chargeLeft: 0,
+      windup: 0,
+      pending: null,
     },
 
     enemies: [],
@@ -237,6 +245,7 @@ export function createWorld(level) {
     bullets: [],
     particles: [],
     pops: [],
+    blasts: [],
     decals: [],
     casings: [],
     noises: [],
@@ -257,9 +266,36 @@ export function createWorld(level) {
     events: [],
   };
 
+  /* Носители: те же громилы, но под видимым щитом одной стихии. */
+  const SHIELD_BY_TYPE = { 7: 'therm', 8: 'ice', 9: 'surge' };
+
   for (const entity of level.entities) {
     const x = entity.x * TILE_SIZE + TILE_SIZE / 2;
     const y = entity.y * TILE_SIZE + TILE_SIZE / 2;
+
+    if (SHIELD_BY_TYPE[entity.type]) {
+      world.enemies.push({
+        kind: 'carrier',
+        weapon: 'bat',
+        ammo: 0,
+        shield: SHIELD_BY_TYPE[entity.type],
+        x, y, vx: 0, vy: 0,
+        home: { x, y },
+        angle: (entity.angle || 0) * (Math.PI / 4),
+        alive: true,
+        downed: 0,
+        stagger: 0,
+        state: 'idle',
+        think: rand(0, 1.2),
+        heard: null,
+        suspicion: 0,
+        windup: 0,
+        cooldown: rand(0, 0.5),
+        step: 0,
+      });
+      world.total += 1;
+      continue;
+    }
 
     if (entity.type === 0 || entity.type === 1) {
       world.enemies.push({
@@ -271,6 +307,8 @@ export function createWorld(level) {
         angle: (entity.angle || 0) * (Math.PI / 4),
         alive: true,
         downed: 0,
+        stagger: 0,
+        shield: null,
         state: 'idle',
         think: rand(0, 1.2),
         heard: null,
@@ -340,36 +378,52 @@ function swingMelee(world, attacker, from) {
   emitNoise(world, attacker.x, attacker.y, weapon.noise, from);
   world.events.push({ type: 'swing', from, lethal: weapon.lethal });
 
-  const targets = from === 'player'
+  const candidates = from === 'player'
     ? world.enemies.filter((e) => e.alive)
     : [world.player].filter((p) => p.alive);
 
   attacker.swingHit = 0;
-  let connected = false;
 
-  for (const target of targets) {
-    const dist = Math.hypot(target.x - attacker.x, target.y - attacker.y);
-    if (dist > weapon.reach + BODY) continue;
-    const toTarget = Math.atan2(target.y - attacker.y, target.x - attacker.x);
+  /*
+   * Взмах достаётся одному — ближайшему в секторе.
+   *
+   * Раньше он доставал всем сразу, и это поймал прогон: бита выносила
+   * троих за один кадр, а очередь демонов, стоящая почти секунду
+   * уязвимости, оказывалась строго хуже бесплатного удара. Толпа обязана
+   * быть проблемой, которую решают чем-то другим, — иначе это «другое»
+   * незачем набирать.
+   */
+  let target = null;
+  let best = Infinity;
+
+  for (const candidate of candidates) {
+    const dist = Math.hypot(candidate.x - attacker.x, candidate.y - attacker.y);
+    if (dist > weapon.reach + BODY || dist >= best) continue;
+    const toTarget = Math.atan2(candidate.y - attacker.y, candidate.x - attacker.x);
     if (Math.abs(angleDelta(attacker.angle, toTarget)) > weapon.arc / 2) continue;
-    if (!hasSight(world, attacker.x, attacker.y, target.x, target.y)) continue;
+    if (!hasSight(world, attacker.x, attacker.y, candidate.x, candidate.y)) continue;
+    best = dist;
+    target = candidate;
+  }
 
-    connected = true;
+  const connected = Boolean(target);
+
+  if (target) {
+    const toTarget = Math.atan2(target.y - attacker.y, target.x - attacker.x);
 
     if (target === world.player) {
       killPlayer(world, toTarget);
-      continue;
-    }
-
-    /* Лежачего добивают даже кулаком — иначе сбитый враг бессмысленен. */
-    if (weapon.lethal || target.downed > 0) {
-      killEnemy(world, target, toTarget, 'melee', {
-        by: from,
-        weapon: attacker.weapon,
-        execution: target.downed > 0,
-      });
-    } else {
-      knockDown(world, target, toTarget);
+    } else if (!shieldStops(world, target, toTarget)) {
+      /* Лежачего добивают даже кулаком — иначе сбитый враг бессмысленен. */
+      if (weapon.lethal || target.downed > 0) {
+        killEnemy(world, target, toTarget, 'melee', {
+          by: from,
+          weapon: attacker.weapon,
+          execution: target.downed > 0,
+        });
+      } else {
+        knockDown(world, target, toTarget);
+      }
     }
   }
 
@@ -385,6 +439,37 @@ function swingMelee(world, attacker, from) {
     attacker.swingHit = 0.2;
     world.events.push({ type: 'impact', lethal: weapon.lethal, from });
   }
+}
+
+/*
+ * Щит. Он не здоровье: держит ровно один удар и гаснет вместе с ним —
+ * носитель остаётся жив, но на треть секунды выключен. Свой демон снимает
+ * щит и носителя разом.
+ *
+ * Через эту дверь проходят все смертельные пути: удар, пуля, брошенная
+ * бита, форма демона. Иначе щит однажды забыли бы в одном из них — и он
+ * стал бы декорацией.
+ */
+export function shieldStops(world, enemy, angle, source = {}) {
+  if (!enemy.shield) return false;
+
+  const elements = source.elements || [];
+  if (elements.includes(enemy.shield)) {
+    enemy.shield = null;
+    return false;
+  }
+
+  enemy.shield = null;
+  enemy.shieldFlash = 0.3;
+  enemy.stagger = 0.35;
+  enemy.hitFlash = 0.16;
+  enemy.vx += Math.cos(angle) * 90;
+  enemy.vy += Math.sin(angle) * 90;
+  pop(world, enemy.x, enemy.y, 17, '120,220,255');
+  spark(world, enemy.x, enemy.y, angle, 2.4, 12, '#9be7ff', 190);
+  world.fx.shake = Math.max(world.fx.shake, 5);
+  world.events.push({ type: 'shield' });
+  return true;
 }
 
 export function knockDown(world, enemy, angle) {
@@ -456,6 +541,193 @@ export function killPlayer(world, angle) {
   world.fx.hitstop = Math.max(world.fx.hitstop, 0.16);
   world.fx.shake = 11;
   world.events.push({ type: 'death' });
+}
+
+
+/* =========================================================
+   ДЕМОНЫ
+   =========================================================
+   Набор стоит времени, и это единственная его цена: пока идёт
+   набор, игрок замедлен и стек видно над головой. Всё, что
+   вылетает, убивает одинаково — разной бывает только форма.
+   ========================================================= */
+
+function releaseStack(world) {
+  const player = world.player;
+  const loaded = formFor(player.stack);
+  if (!loaded) return;
+
+  player.stack = [];
+  const { form, elements } = loaded;
+
+  /* У луча замах: линию видно заранее, и уйти с неё успевают обе стороны. */
+  if (form.kind === 'beam') {
+    player.windup = form.windup;
+    player.pending = { form, elements };
+    world.events.push({ type: 'daemon-windup', form: form.id });
+    return;
+  }
+
+  castForm(world, form, elements);
+}
+
+function castForm(world, form, elements) {
+  const player = world.player;
+  const angle = player.angle;
+
+  player.cooldown = 0.22;
+  emitNoise(world, player.x, player.y, form.noise, 'player');
+  world.fx.shake = Math.max(world.fx.shake, form.kind === 'nova' ? 9 : 4.5);
+  world.fx.punch = 1;
+  world.events.push({ type: 'daemon', form: form.id, elements });
+
+  if (form.kind === 'shot') {
+    spawnDaemon(world, angle, form, elements);
+  } else if (form.kind === 'fan') {
+    for (const shift of [-form.spread, 0, form.spread]) {
+      spawnDaemon(world, angle + shift, form, elements);
+    }
+  } else if (form.kind === 'cone') {
+    castCone(world, form, elements, angle);
+  } else if (form.kind === 'beam') {
+    castBeam(world, form, elements, angle);
+  } else if (form.kind === 'nova') {
+    castNova(world, form, elements);
+  }
+}
+
+function spawnDaemon(world, angle, form, elements) {
+  const player = world.player;
+  world.bullets.push({
+    x: player.x + Math.cos(angle) * 14,
+    y: player.y + Math.sin(angle) * 14,
+    vx: Math.cos(angle) * form.speed,
+    vy: Math.sin(angle) * form.speed,
+    from: 'player',
+    weapon: 'daemon',
+    elements,
+    pierce: form.pierce || 0,
+    breaks: Boolean(form.breaks),
+    colour: colourOf(elements[0]),
+    life: form.life,
+  });
+}
+
+function castCone(world, form, elements, angle) {
+  const player = world.player;
+
+  for (const enemy of world.enemies) {
+    if (!enemy.alive) continue;
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    if (Math.hypot(dx, dy) > form.reach + BODY) continue;
+    const toEnemy = Math.atan2(dy, dx);
+    if (Math.abs(angleDelta(angle, toEnemy)) > form.arc / 2) continue;
+    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
+    if (shieldStops(world, enemy, toEnemy, { elements })) continue;
+    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
+  }
+
+  world.blasts.push({
+    kind: 'cone', x: player.x, y: player.y, angle,
+    reach: form.reach, arc: form.arc,
+    life: 0.2, span: 0.2, colour: colourOf(elements[0]),
+  });
+}
+
+function castBeam(world, form, elements, angle) {
+  const player = world.player;
+  const step = 6;
+  let distance = 0;
+
+  /* Луч идёт по шагам: так он честно останавливается о стену и по дороге
+     выносит витрины, а не телепортируется в конец комнаты. */
+  while (distance < form.range) {
+    const x = player.x + Math.cos(angle) * distance;
+    const y = player.y + Math.sin(angle) * distance;
+    const tile = tileAt(world, x, y);
+
+    if (breakable(tile)) {
+      world.tiles[tileIndex(world, x, y)] = TILE.FLOOR;
+      world.rebake = true;
+      spark(world, x, y, angle, 2.2, 10, '#9be7ff', 200);
+    } else if (blocksShot(tile)) {
+      break;
+    }
+
+    for (const enemy of world.enemies) {
+      if (!enemy.alive) continue;
+      if (Math.hypot(enemy.x - x, enemy.y - y) > BODY + 2) continue;
+      if (shieldStops(world, enemy, angle, { elements })) continue;
+      killEnemy(world, enemy, angle, 'daemon', { by: 'player', weapon: 'daemon', elements });
+    }
+
+    distance += step;
+  }
+
+  world.blasts.push({
+    kind: 'beam',
+    x: player.x, y: player.y,
+    x2: player.x + Math.cos(angle) * distance,
+    y2: player.y + Math.sin(angle) * distance,
+    life: 0.26, span: 0.26, colour: colourOf(elements[0]),
+  });
+}
+
+/*
+ * Вспышка бьёт по кругу и не разбирает своих. В тесноте она отражается от
+ * стен и достаёт того, кто её выпустил, — это не наказание, а плата за
+ * кнопку паники, и в игре, где смерть стоит полсекунды, такая смерть
+ * скорее смешная, чем обидная.
+ */
+function castNova(world, form, elements) {
+  const player = world.player;
+
+  for (const enemy of world.enemies) {
+    if (!enemy.alive) continue;
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    if (Math.hypot(dx, dy) > form.radius) continue;
+    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
+    const toEnemy = Math.atan2(dy, dx);
+    if (shieldStops(world, enemy, toEnemy, { elements })) continue;
+    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
+  }
+
+  world.blasts.push({
+    kind: 'nova', x: player.x, y: player.y,
+    radius: form.radius, life: 0.3, span: 0.3, colour: '#ffffff',
+  });
+
+  /*
+   * Отражение считается по соседним клеткам, а не лучами: восемь соседей
+   * вокруг той клетки, где стоишь. Четыре стены и больше — теснота, волну
+   * возвращает. Коридор и дверной проём набирают четыре и шесть, угол
+   * комнаты — три, и поэтому в углу вспышка безопасна.
+   *
+   * Считаются только стены: мебель низкая, волна идёт поверх, и смерть от
+   * стола выглядела бы случайной, а не заслуженной.
+   */
+  const cx = Math.floor(player.x / TILE_SIZE);
+  const cy = Math.floor(player.y / TILE_SIZE);
+  let walls = 0;
+
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (!dx && !dy) continue;
+      const x = cx + dx;
+      const y = cy + dy;
+      const tile = (x < 0 || y < 0 || x >= world.w || y >= world.h)
+        ? TILE.WALL
+        : world.tiles[y * world.w + x];
+      if (tile === TILE.WALL) walls += 1;
+    }
+  }
+
+  if (walls >= 4) {
+    world.events.push({ type: 'backfire' });
+    killPlayer(world, Math.random() * Math.PI * 2);
+  }
 }
 
 
@@ -565,9 +837,17 @@ function updatePlayer(world, dt, intent) {
   const player = world.player;
   if (!player.alive) return;
 
+  /*
+   * Набор демона стоит скорости, замах луча — почти всей. Это и есть та
+   * ставка, ради которой очередь вообще нужна: чем длиннее, тем дольше
+   * стоишь на виду.
+   */
+  const pace = player.windup > 0 ? 0.35 : (player.chargeLeft > 0 ? 0.55 : 1);
+  const speed = PLAYER_SPEED * pace;
+
   const wish = Math.hypot(intent.moveX, intent.moveY);
-  const targetX = wish > 0.001 ? (intent.moveX / Math.max(1, wish)) * PLAYER_SPEED : 0;
-  const targetY = wish > 0.001 ? (intent.moveY / Math.max(1, wish)) * PLAYER_SPEED : 0;
+  const targetX = wish > 0.001 ? (intent.moveX / Math.max(1, wish)) * speed : 0;
+  const targetY = wish > 0.001 ? (intent.moveY / Math.max(1, wish)) * speed : 0;
 
   player.vx += clamp(targetX - player.vx, -PLAYER_ACCEL * dt, PLAYER_ACCEL * dt);
   player.vy += clamp(targetY - player.vy, -PLAYER_ACCEL * dt, PLAYER_ACCEL * dt);
@@ -594,6 +874,49 @@ function updatePlayer(world, dt, intent) {
 
   if (intent.pickup) tryPickup(world);
   if (intent.throw) tryThrow(world);
+
+  /* Луч на замахе: линию уже видно, отменить нельзя. */
+  if (player.windup > 0) {
+    player.windup -= dt;
+    if (player.windup <= 0 && player.pending) {
+      const pending = player.pending;
+      player.pending = null;
+      castForm(world, pending.form, pending.elements);
+    }
+    return;
+  }
+
+  if (intent.charge && player.stack.length < STACK_LIMIT && player.chargeLeft <= 0) {
+    player.charging = intent.charge;
+    player.chargeLeft = CHARGE_STEP;
+    world.events.push({ type: 'charge-start', element: intent.charge });
+  }
+
+  if (player.chargeLeft > 0) {
+    player.chargeLeft -= dt;
+    if (player.chargeLeft <= 0) {
+      player.stack.push(player.charging);
+      player.charging = null;
+      world.events.push({ type: 'charge', size: player.stack.length });
+    }
+  }
+
+  if (intent.attack && player.cooldown <= 0) {
+    /*
+     * Удар при наборе бросает недобранную стихию и выпускает то, что уже
+     * есть. Так кнопка удара всегда делает хоть что-то: остаться без
+     * ответа из-за собственного набора — худшее, что тут может случиться.
+     */
+    if (player.chargeLeft > 0) {
+      player.chargeLeft = 0;
+      player.charging = null;
+    }
+
+    if (player.stack.length) {
+      releaseStack(world);
+      return;
+    }
+  }
 
   if (intent.attack && player.cooldown <= 0) {
     const weapon = WEAPONS[player.weapon];
@@ -629,6 +952,16 @@ function updateEnemy(world, enemy, dt) {
   enemy.swing = Math.max(0, (enemy.swing || 0) - dt);
   enemy.flash = Math.max(0, (enemy.flash || 0) - dt);
   enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt);
+  enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
+
+  /* Сорванный щит выключает носителя на треть секунды — окно для добивания. */
+  if (enemy.stagger > 0) {
+    enemy.stagger -= dt;
+    enemy.vx *= 0.82;
+    enemy.vy *= 0.82;
+    moveBody(world, enemy, enemy.vx * dt, enemy.vy * dt);
+    return;
+  }
 
   if (enemy.downed > 0) {
     enemy.downed -= dt;
@@ -695,8 +1028,15 @@ function updateBullets(world, dt) {
       }
 
       if (blocksShot(tile)) {
+        /* Пробой сносит мебель и идёт дальше — на то он и пробой. */
+        if (bullet.breaks && tile === TILE.TABLE) {
+          world.tiles[tileIndex(world, bullet.x, bullet.y)] = TILE.FLOOR;
+          world.rebake = true;
+          spark(world, bullet.x, bullet.y, Math.atan2(sy, sx), 2, 10, '#ff9b52', 190);
+          continue;
+        }
         spark(world, bullet.x, bullet.y, Math.atan2(-sy, -sx), 1.1, 5, '#ffe06b', 150);
-        pop(world, bullet.x, bullet.y, 5, '255,224,107');
+        pop(world, bullet.x, bullet.y, 5, bullet.colour ? '255,255,255' : '255,224,107');
         bullet.life = 0;
         break;
       }
@@ -706,11 +1046,16 @@ function updateBullets(world, dt) {
       if (bullet.from === 'player') {
         for (const enemy of world.enemies) {
           if (!enemy.alive) continue;
-          if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < BODY + 1) {
-            killEnemy(world, enemy, angle, 'bullet', { by: 'player', weapon: bullet.weapon });
-            bullet.life = 0;
-            break;
+          if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) >= BODY + 1) continue;
+
+          if (!shieldStops(world, enemy, angle, { elements: bullet.elements })) {
+            killEnemy(world, enemy, angle, bullet.weapon === 'daemon' ? 'daemon' : 'bullet',
+              { by: 'player', weapon: bullet.weapon, elements: bullet.elements });
           }
+
+          if (bullet.pierce > 0) { bullet.pierce -= 1; continue; }
+          bullet.life = 0;
+          break;
         }
       } else {
         const player = world.player;
@@ -721,10 +1066,11 @@ function updateBullets(world, dt) {
         /* Своих тоже задевает: чужая пуля в спину товарища — честный трофей. */
         for (const enemy of world.enemies) {
           if (!enemy.alive || bullet.life <= 0) continue;
-          if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < BODY + 1) {
+          if (Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) >= BODY + 1) continue;
+          if (!shieldStops(world, enemy, angle)) {
             killEnemy(world, enemy, angle, 'bullet', { by: 'enemy', weapon: bullet.weapon });
-            bullet.life = 0;
           }
+          bullet.life = 0;
         }
       }
     }
@@ -760,7 +1106,15 @@ function updateLoose(world, dt) {
     for (const enemy of world.enemies) {
       if (!enemy.alive || enemy.downed > 0) continue;
       if (Math.hypot(enemy.x - pickup.x, enemy.y - pickup.y) < BODY + 6) {
-        knockDown(world, enemy, Math.atan2(pickup.vy, pickup.vx));
+        const angle = Math.atan2(pickup.vy, pickup.vx);
+        if (shieldStops(world, enemy, angle)) {
+          pickup.flying = false;
+          pickup.vx = 0;
+          pickup.vy = 0;
+          pickup.spin = 0;
+          break;
+        }
+        knockDown(world, enemy, angle);
         world.events.push({ type: 'thrown-hit' });
         world.fx.hitstop = Math.max(world.fx.hitstop, 0.06);
         world.fx.shake = Math.max(world.fx.shake, 4);
@@ -779,6 +1133,9 @@ function updateLoose(world, dt) {
 
   for (const ring of world.pops) ring.life -= dt;
   world.pops = world.pops.filter((ring) => ring.life > 0);
+
+  for (const blast of world.blasts) blast.life -= dt;
+  world.blasts = world.blasts.filter((blast) => blast.life > 0);
 
   for (const particle of world.particles) {
     particle.x += particle.vx * dt;

@@ -125,6 +125,13 @@ export function thinkEnemy(world, enemy, dt, speed) {
   const player = world.player;
   const result = { vx: 0, vy: 0, attack: false };
 
+  /*
+   * Заряженного видно издалека: стек горит над головой. Спрятать силу
+   * нельзя — значит, на неё отвечают: громила ускоряется, чтобы достать
+   * до выстрела, стрелок жмёт на спуск раньше.
+   */
+  const charged = player.stack && player.stack.length >= 2;
+
   const visible = player.alive && sees(world, enemy, player);
   const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
   const toPlayer = Math.atan2(player.y - enemy.y, player.x - enemy.x);
@@ -220,7 +227,7 @@ export function thinkEnemy(world, enemy, dt, speed) {
         if (shootable && enemy.cooldown <= 0) {
           /* Замах перед выстрелом: у игрока должно быть время уйти с линии. */
           enemy.windup = (enemy.windup || 0) + dt;
-          if (enemy.windup > 0.42) {
+          if (enemy.windup > (charged ? 0.3 : 0.42)) {
             enemy.windup = 0;
             result.attack = true;
             enemy.cooldown = 0.9 + Math.random() * 0.5;
@@ -241,8 +248,9 @@ export function thinkEnemy(world, enemy, dt, speed) {
         const step = (visible && hasSight(world, enemy.x, enemy.y, player.x, player.y))
           ? { x: Math.cos(toPlayer), y: Math.sin(toPlayer) }
           : (flowStep(world, enemy) || { x: 0, y: 0 });
-        result.vx = step.x * speed.run;
-        result.vy = step.y * speed.run;
+        const rush = charged ? 1.14 : 1;
+        result.vx = step.x * speed.run * rush;
+        result.vy = step.y * speed.run * rush;
         enemy.windup = 0;
       } else if (enemy.cooldown <= 0) {
         enemy.windup = (enemy.windup || 0) + dt;

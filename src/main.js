@@ -14,6 +14,7 @@ import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
+import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, formFor, colourOf } from './daemons.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,15 +45,23 @@ const ui = {
   scoreBest: $('scoreBest'),
   score: $('score'),
   combo: $('combo'),
+  stack: $('stack'),
+  form: $('form'),
   mute: $('mute'),
   ghostMove: $('ghostMove'),
   ghostAim: $('ghostAim'),
 };
 
+/* Клавиши стихий: цифровой ряд слева, чтобы левая рука не уходила с WASD. */
+const CHARGE_KEYS = { Digit1: 'therm', Digit2: 'ice', Digit3: 'surge' };
+
 const SFX_BY_EVENT = {
   shot: 'shot',
   swing: 'swing',
   impact: 'impact',
+  'charge-start': 'charge',
+  'daemon-windup': 'beamup',
+  shield: 'shield',
   knock: 'knock',
   kill: 'kill',
   death: 'death',
@@ -63,6 +72,8 @@ const SFX_BY_EVENT = {
   cleared: 'exit',
 };
 
+let levelIndex = 0;
+let custom = false;
 let level = CAMPAIGN[0];
 let world = null;
 let score = null;
@@ -90,10 +101,10 @@ function levelFromHash() {
   if (!match) return null;
 
   try {
-    const custom = decode(decodeURIComponent(match[1]));
-    custom.title = 'ЧУЖОЙ ЭТАЖ';
-    custom.call = 'Код прислали снаружи. Кто там внутри — автоответчик не уточнил.';
-    return custom;
+    const outside = decode(decodeURIComponent(match[1]));
+    outside.title = 'ЧУЖОЙ ЭТАЖ';
+    outside.call = 'Код прислали снаружи. Кто там внутри — автоответчик не уточнил.';
+    return outside;
   } catch (error) {
     setToast(`КОД НЕ ОТКРЫЛСЯ: ${error.message}`, 5);
     return null;
@@ -162,8 +173,8 @@ function setToast(text, seconds = 2) {
 
 function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
-    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ. ПРАВЫЙ ЦЕЛИТ И БЬЁТ САМ, КОГДА ЦЕЛЬ ПОД ПРИЦЕЛОМ. КНОПКИ СПРАВА — ВЗЯТЬ И БРОСИТЬ.'
-    : 'WASD — ИДТИ, СТРЕЛКИ — ЦЕЛИТЬ, ПРОБЕЛ — БИТЬ. МЫШЬ ТОЖЕ ЦЕЛИТ. E — ВЗЯТЬ, Q — БРОСИТЬ, R — ЗАНОВО.';
+    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНОВ — УДАР ИХ ВЫПУСКАЕТ.'
+    : 'WASD — ИДТИ, СТРЕЛКИ — ЦЕЛИТЬ, ПРОБЕЛ — БИТЬ. 1/2/3 НАБИРАЮТ ДЕМОНОВ, УДАР ИХ ВЫПУСКАЕТ. E — ВЗЯТЬ, Q — БРОСИТЬ, R — ЗАНОВО.';
 }
 
 
@@ -216,20 +227,27 @@ function deathScreen() {
   });
 }
 
+function hasNextFloor() {
+  return !custom && levelIndex + 1 < CAMPAIGN.length;
+}
+
 function clearScreen() {
   scene = 'clear';
 
   result = score.finish(world);
   const record = writeBest(levelCode, result, world.time);
+  const more = hasNextFloor();
 
   showVeil({
     tone: 'clear',
     kicker: 'ЭТАЖ СДАН',
-    title: 'ТИХО',
-    text: 'Автоответчик молчит. Очки платят не за аккуратность, а за темп: цепочка обрывается через четыре секунды без убийства.',
+    title: more ? 'СЛЕДУЮЩЕЕ СООБЩЕНИЕ' : 'ТИХО',
+    text: more
+      ? 'Автоответчик уже мигает. Очки платят за темп: цепочка обрывается через четыре секунды без убийства.'
+      : 'Автоответчик молчит. Дальше — только чище и быстрее, чем в прошлый раз.',
     stats: `<span>ВРЕМЯ ${formatTime(world.time)}</span><span>ПОПЫТОК ${attempts}</span>`,
-    action: 'ПРОЙТИ ЧИЩЕ',
-    second: 'ВЫЙТИ В МЕНЮ',
+    action: more ? 'СЛЕДУЮЩИЙ ЭТАЖ' : 'ПРОЙТИ ЧИЩЕ',
+    second: more ? 'ПРОЙТИ ЭТОТ ЧИЩЕ' : 'ВЫЙТИ В МЕНЮ',
     result,
     best: record.best,
     record: record.record,
@@ -269,9 +287,15 @@ function buildIntent(raw) {
     moveY: raw.moveY,
     aimAngle: null,
     attack: false,
+    charge: null,
     pickup: input.tookKey('KeyE') || input.tookKey('Pickup'),
     throw: input.tookKey('KeyQ') || input.tookKey('Throw'),
   };
+
+  /* Забираем все три нажатия, а не первое: иначе непрочитанное всплывёт кадром позже. */
+  for (const code of Object.keys(CHARGE_KEYS)) {
+    if (input.tookKey(code)) intent.charge = CHARGE_KEYS[code];
+  }
 
   if (raw.aimStick !== null) {
     intent.aimAngle = assistAim(world, raw.aimStick, AIM_CONE.stick);
@@ -331,6 +355,28 @@ function updateHud(force) {
     ui.ammo.dataset.empty = '0';
   }
 
+  const player2 = world.player;
+  const loaded = formFor(player2.stack);
+  const key = player2.stack.join('') + (player2.charging || '') + (player2.chargeLeft > 0 ? '+' : '');
+
+  if (force || ui.stack.dataset.key !== key) {
+    ui.stack.dataset.key = key;
+    let slots = '';
+    for (let i = 0; i < STACK_LIMIT; i += 1) {
+      const element = player2.stack[i];
+      if (element) {
+        slots += `<i style="background:${colourOf(element)};box-shadow:0 0 8px ${colourOf(element)}"></i>`;
+      } else if (i === player2.stack.length && player2.chargeLeft > 0) {
+        slots += `<i class="is-charging" style="border-color:${colourOf(player2.charging)}"></i>`;
+      } else {
+        slots += '<i></i>';
+      }
+    }
+    ui.stack.innerHTML = slots;
+    ui.form.textContent = loaded ? loaded.form.name : '';
+    ui.form.hidden = !loaded;
+  }
+
   ui.kills.textContent = `${world.kills}/${world.total}`;
   ui.clock.textContent = formatTime(world.time);
 
@@ -358,6 +404,15 @@ function drainEvents() {
   for (const event of world.events) {
     const name = SFX_BY_EVENT[event.type];
     if (name) audio.sfx(name);
+
+    if (event.type === 'daemon') {
+      audio.sfx(event.form === 'beam' ? 'beam' : event.form === 'nova' ? 'nova' : 'zap');
+      if (event.form === 'nova') vibrate(30);
+    } else if (event.type === 'backfire') {
+      setToast('ВСПЫШКА В ТЕСНОТЕ — СВОИМ ЖЕ', 2.4);
+    } else if (event.type === 'shield') {
+      setToast('ЩИТ СОРВАН', 1.2);
+    }
 
     if (event.type === 'kill') {
       vibrate(12);
@@ -517,15 +572,29 @@ ui.veilAction.addEventListener('click', (event) => {
 
   if (scene === 'call') startLevel(level);
   else if (scene === 'dead') startLevel(level, { silent: true });
-  else if (scene === 'clear') { attempts = 0; startLevel(level, { silent: true }); }
-  else if (scene === 'pause') { hideVeil(); scene = 'play'; }
+  else if (scene === 'clear') {
+    attempts = 0;
+    if (hasNextFloor()) {
+      levelIndex += 1;
+      level = CAMPAIGN[levelIndex];
+      levelCode = encode(level);
+      world = createWorld(level);
+      score = createScore(level, 0);
+      view = { x: world.player.x, y: world.player.y };
+      renderer.invalidate();
+      updateHud(true);
+      callScreen();
+    } else {
+      startLevel(level, { silent: true });
+    }
+  } else if (scene === 'pause') { hideVeil(); scene = 'play'; }
 });
 
 ui.veilSecond.addEventListener('click', (event) => {
   audio.sfx('ui');
   event.currentTarget.blur();
   if (scene === 'pause') startLevel(level, { silent: true });
-  else if (scene === 'clear') { attempts = 0; callScreen(); }
+  else if (scene === 'clear') { attempts = 0; startLevel(level, { silent: true }); }
 });
 
 ui.codeBox.addEventListener('focus', () => ui.codeBox.select());
@@ -545,6 +614,7 @@ ui.mute.addEventListener('click', () => {
   toggleMute();
 });
 
+for (const element of ELEMENT_ORDER) input.bindButton($(`btn-${element}`), element);
 input.bindButton($('btnAttack'), 'attack');
 input.bindButton($('btnPickup'), 'pickup');
 input.bindButton($('btnThrow'), 'throw');
@@ -569,7 +639,7 @@ window.avto = {
 };
 
 const fromHash = levelFromHash();
-if (fromHash) level = fromHash;
+if (fromHash) { level = fromHash; custom = true; }
 
 resize();
 levelCode = encode(level);
