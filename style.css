@@ -139,6 +139,10 @@ html, body {
   pointer-events: none;
 }
 
+/* Атрибут hidden обязан побеждать раскладку: иначе спрятанный блок
+   исправно занимает место, а игрок читает пустую строку как поломку. */
+.hud-slot[hidden] { display: none; }
+
 .hud-slot {
   display: flex;
   flex-direction: column;
