@@ -28,7 +28,7 @@ export const ELEMENTS = {
   water: { id: 'water', name: 'ВОДА',   short: 'ВД', key: '↑', colour: '#4de1ff' },
   wind:  { id: 'wind',  name: 'ВЕТЕР',  short: 'ВТ', key: '→', colour: '#76ff9f' },
   earth: { id: 'earth', name: 'ЗЕМЛЯ',  short: 'ЗМ', key: '↓', colour: '#d08a3e' },
-  bolt:  { id: 'bolt',  name: 'МОЛНИЯ', short: 'МЛ', key: '/', colour: '#ffe14d' },
+  bolt:  { id: 'bolt',  name: 'МОЛНИЯ', short: 'МЛ', key: '⇧', colour: '#ffe14d' },
 };
 
 export const ELEMENT_ORDER = ['fire', 'water', 'wind', 'earth', 'bolt'];
