@@ -1,5 +1,5 @@
 /*
- * АВТООТВЕТЧИК — книга заклинаний: что игрок уже знает.
+ * ТЕХНОМАГИЯ — книга заклинаний: что игрок уже знает.
  *
  * Составов двадцать пять, именных заклинаний десять, и до этого модуля
  * всё это было скрытым содержимым: игра их считала, а игрок о них не
@@ -17,7 +17,7 @@
 
 import { ELEMENT_ORDER, ELEMENTS, FORMS, SIGNATURES, allSubstances, substanceOf } from './magic.js';
 
-const KEY = 'avtootvetchik.book.v1';
+const KEY = 'technomagic.book.v1';
 
 export function loadBook() {
   try {
