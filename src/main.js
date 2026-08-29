@@ -923,6 +923,12 @@ function step(now) {
     }
   } else if (restart && (scene === 'play' || scene === 'pause')) {
     startLevel(level, { silent: true });
+  } else if (scene === 'call' && !tomeVisible
+      && (input.tookKey('Fire') || input.tookKey('Enter') || input.tookKey('Space'))) {
+    /* Стартовый экран тоже открывается тем, что под рукой. Единственный вход
+       в игру не должен зависеть от одной кнопки: пока он от неё зависел,
+       пропавший стиль этой кнопки означал, что игру нельзя начать вовсе. */
+    ui.veilAction.click();
   }
 
   if (world) {

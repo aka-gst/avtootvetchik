@@ -445,9 +445,13 @@ html, body {
     gap: 5px;
   }
 
+  /* Палец — не курсор: клетка ниже сорока четырёх точек промахивается. */
   .daemon-key {
     width: 68px;
-    padding: 9px 3px 8px;
+    min-height: 46px;
+    padding: 6px 3px;
+    display: grid;
+    align-content: center;
   }
 
   .daemon-key b { display: none; }
@@ -546,7 +550,10 @@ html, body {
 
   .daemon-key {
     width: 60px;
-    padding: 7px 3px 6px;
+    min-height: 44px;
+    padding: 5px 3px;
+    display: grid;
+    align-content: center;
     background: #050b0cd0;
   }
 
@@ -595,6 +602,236 @@ html, body {
   .found { top: 34%; }
 }
 
+/* =========================================================
+   ЭКРАНЫ МЕЖДУ ПОПЫТКАМИ
+   ========================================================= */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: #05040ad9;
+  backdrop-filter: blur(6px);
+}
+
+.veil[hidden] { display: none; }
+
+.veil-card {
+  width: min(430px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 24px 22px 20px;
+  border: 2px solid var(--acid);
+  background: linear-gradient(150deg, #1a0b28, #0a1512);
+  box-shadow: 10px 10px 0 #05040a, 0 0 44px #76ff9f22;
+}
+
+.veil[data-tone="dead"] .veil-card { border-color: var(--pink); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ff2d9530; }
+.veil[data-tone="clear"] .veil-card { border-color: var(--amber); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ffe06b30; }
+.veil[data-tone="pause"] .veil-card { border-color: var(--violet); box-shadow: 10px 10px 0 #05040a, 0 0 44px #bc70ff30; }
+
+.veil-kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--violet);
+  font: 800 9px var(--mono);
+  letter-spacing: .22em;
+}
+
+.veil h1 {
+  margin: 0 0 12px;
+  font: 900 30px/1 system-ui, -apple-system, sans-serif;
+  letter-spacing: .01em;
+  color: var(--acid);
+  text-transform: uppercase;
+}
+
+.veil[data-tone="dead"] h1 { color: var(--pink); }
+.veil[data-tone="clear"] h1 { color: var(--amber); }
+.veil[data-tone="pause"] h1 { color: var(--violet); }
+
+.veil p {
+  margin: 0 0 16px;
+  color: #cbbbd6;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.veil-stats span[data-warn="1"] {
+  color: var(--pink);
+}
+
+.veil-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 18px;
+  color: #8a7c99;
+  font: 700 9px var(--mono);
+  letter-spacing: .14em;
+  line-height: 1.5;
+}
+
+.veil-score {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid #ffffff1c;
+  background: #06040c;
+}
+
+.veil-score[hidden] { display: none; }
+
+.veil-score .rank {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.veil-score .rank b {
+  font: 900 46px/1 system-ui, -apple-system, sans-serif;
+  color: var(--amber);
+  text-shadow: 3px 3px 0 #05040a;
+}
+
+.veil-score .rank span {
+  color: #6f6280;
+  font: 800 9px var(--mono);
+  letter-spacing: .2em;
+}
+
+.veil-score[data-rank="S"] .rank b { color: var(--pink); }
+.veil-score[data-rank="A"] .rank b { color: var(--acid); }
+.veil-score[data-rank="D"] .rank b { color: #8a7c99; }
+
+.veil-score ul {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 11px;
+  padding: 0;
+  list-style: none;
+}
+
+.veil-score li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #a596b3;
+  font: 700 10px var(--mono);
+  letter-spacing: .08em;
+}
+
+.veil-score li b { color: var(--paper); font-weight: 800; }
+
+.score-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 9px;
+  border-top: 1px solid #ffffff1c;
+  color: #6f6280;
+  font: 800 9px var(--mono);
+  letter-spacing: .18em;
+}
+
+.score-total b {
+  color: var(--amber);
+  font: 900 22px/1 var(--mono);
+}
+
+.score-best {
+  margin: 9px 0 0;
+  color: #6f6280;
+  font: 700 9px var(--mono);
+  letter-spacing: .12em;
+}
+
+.score-best[data-record="1"] { color: var(--acid); }
+
+.veil-action, .veil-second {
+  width: 100%;
+  min-height: 48px;
+  border: 2px solid var(--acid);
+  background: #16412c;
+  color: #fff;
+  font: 800 12px var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 #05040a;
+}
+
+.veil-second {
+  margin-top: 9px;
+  border-color: #ffffff28;
+  background: transparent;
+  color: #a596b3;
+  box-shadow: none;
+}
+
+.veil-action:hover, .veil-second:hover { background: #1e5c3d; color: #fff; }
+
+.veil-code {
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px dashed #ffffff22;
+  background: #06040c;
+}
+
+.veil-code label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--violet);
+  font: 800 8px var(--mono);
+  letter-spacing: .18em;
+}
+
+.code-row { display: flex; gap: 6px; }
+
+.code-row #nickBox {
+  flex: 0 0 120px;
+  color: var(--acid);
+  text-transform: uppercase;
+}
+
+.code-row input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 9px;
+  border: 1px solid #ffffff22;
+  background: #0d0817;
+  color: var(--amber);
+  font: 600 11px var(--mono);
+  outline: none;
+}
+
+.code-row button {
+  padding: 0 12px;
+  border: 1px solid var(--violet);
+  background: #23113a;
+  color: var(--paper);
+  font: 800 9px var(--mono);
+  letter-spacing: .1em;
+  cursor: pointer;
+}
+
+.veil-code small {
+  display: block;
+  margin-top: 7px;
+  color: #6f6280;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+/* Низкий экран: карточка ужимается, иначе кнопка уезжает за кромку. */
+@media (max-height: 520px) {
+  .veil-card { padding: 16px; }
+  .veil h1 { font-size: 22px; }
+  .veil p { margin-bottom: 10px; }
+}
 
 /* =========================================================
    КНИГА ЗАКЛИНАНИЙ
