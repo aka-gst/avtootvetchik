@@ -548,13 +548,13 @@ function tutorFeed(event) {
 
   if (tutorStep === 1 && event.type === 'kill') {
     tutorStep = 2;
-    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ. TAB НАВЕДЁТ НА НЕЁ, БЕЙ ОГНЁМ', 4.2);
+    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ. TAB НАВЕДЁТ — БЕЙ МОЛНИЕЙ', 4.2);
     return;
   }
 
   if (tutorStep <= 2 && event.type === 'barrel') {
     tutorStep = 3;
-    setToast('ОНИ МОКРЫЕ. БЕЙ МОЛНИЕЙ В ЛЮБОГО — ТОК ПОЙДЁТ ПО ВОДЕ', 4.2);
+    setToast('ВОДА РАЗЛИЛАСЬ И ПРОВЕЛА РАЗРЯД. СОЛОМА СПРАВА — ГОРИТ', 4.2);
     return;
   }
 
@@ -770,6 +770,12 @@ function drainEvents() {
       setToast('БОЧКА ВСКРЫТА — ВОДА НА ПОЛУ', 1.6);
     } else if (event.type === 'crystal') {
       setToast('КРИСТАЛЛ ОТДАЛ РАЗРЯД', 1.6);
+    } else if (event.type === 'hay') {
+      setToast('СОЛОМА ЗАНЯЛАСЬ', 1.6);
+    } else if (event.type === 'engaged') {
+      /* Тихая фаза кончилась, и сказать об этом надо один раз: дальше
+         этаж ведёт себя как обычно, и объяснять это второй раз незачем. */
+      setToast('ТЕПЕРЬ ОНИ ЗНАЮТ', 1.8);
     }
 
     tutorFeed(event);

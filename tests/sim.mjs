@@ -14,14 +14,14 @@
  */
 
 import { CAMPAIGN } from '../src/levels.js';
-import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex } from '../src/world.js';
+import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex, killEnemy } from '../src/world.js';
 import { buildFlowField } from '../src/ai.js';
-import { TILE, blocksMove, decode, encode, elementMask, elementsFromMask, weakTo } from '../src/level.js';
+import { TILE, blocksMove, decode, encode, elementMask, elementsFromMask, weakTo, brokenBy } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat, lockTarget, cycleTarget, lockCandidates } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
 import {
-  GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH,
+  GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH, BURN_TIME,
 } from '../src/field.js';
 
 /*
@@ -917,9 +917,11 @@ function cast(world, stack, angle) {
   }
 
   const cases = [
-    { kind: TILE.BARREL, name: 'бочку', yes: ['fire'], no: ['bolt'] },
+    { kind: TILE.BARREL, name: 'бочку', yes: ['fire'], no: ['water'] },
+    { kind: TILE.BARREL, name: 'бочку молнией', yes: ['bolt'], no: ['water'] },
     { kind: TILE.BOULDER, name: 'валун', yes: ['earth'], no: ['fire'] },
     { kind: TILE.CRYSTAL, name: 'кристалл', yes: ['bolt'], no: ['earth'] },
+    { kind: TILE.HAY, name: 'солому', yes: ['fire'], no: ['bolt'] },
   ];
 
   for (const one of cases) {
@@ -945,9 +947,19 @@ function cast(world, stack, angle) {
   }
   check('из бочки льётся вода, и не в одну клетку', wet >= 5, `${wet} клеток`);
 
-  check('у каждого предмета своя стихия и она одна',
-    weakTo(TILE.BARREL) === 'burn' && weakTo(TILE.BOULDER) === 'crush'
-    && weakTo(TILE.CRYSTAL) === 'shock' && weakTo(TILE.WALL) === null);
+  /*
+   * Разница между «ломается многим» и «ломается одним» — это и есть вся
+   * тактика вокруг предметов. Тонкая бочка поддаётся многому, валун и
+   * кристалл — ровно одному, и в этом их смысл: они не препятствие, а
+   * вопрос «чем именно».
+   */
+  check('бочка ломается многим, а валун и кристалл — одним',
+    weakTo(TILE.BARREL).length > 1
+    && weakTo(TILE.BOULDER).length === 1 && weakTo(TILE.CRYSTAL).length === 1,
+    weakTo(TILE.BARREL).join('/'));
+  check('стена не ломается ничем', weakTo(TILE.WALL) === null);
+  check('солома горит и только',
+    brokenBy(TILE.HAY, { burn: 1 }) && !brokenBy(TILE.HAY, { shock: 1, crush: 1 }));
 }
 
 /* --- M. Обучалка: тот самый первый ход --- */
@@ -1057,6 +1069,123 @@ function cast(world, stack, angle) {
   world.tiles[barrel] = 0;
   check('разбитая бочка из целей уходит',
     !lockCandidates(world, 0).some((t) => t.prop === barrel));
+}
+
+
+/* --- O. Этаж спит до первой смерти --- */
+{
+  /*
+   * Половина игры, которой не хватало: комнату можно обойти и разглядеть,
+   * а бой начинается тогда, когда его начал ты. Считается именно смерть —
+   * не шум и не вид заряженного, — иначе тихая фаза кончалась бы неизвестно
+   * от чего.
+   */
+  const world = createWorld(TUTOR);
+  const enemy = world.enemies.find((e) => e.alive);
+
+  /* Встаём вплотную и стоим: заметить обязаны, броситься — нет. */
+  world.player.x = enemy.x + TILE_SIZE * 1.5;
+  world.player.y = enemy.y;
+  run(world, 4);
+
+  check('пока никто не убит, никто не гонится',
+    world.enemies.every((e) => e.state !== 'chase'),
+    world.enemies.map((e) => e.state).join(','));
+  check('и стоящего вплотную не трогают', world.player.alive);
+  check('этаж числится спящим', world.engaged === false);
+
+  /* Первая смерть будит всех. */
+  killEnemy(world, world.enemies.find((e) => e.alive), 0, 'daemon', { by: 'player' });
+  check('смерть объявляется событием',
+    world.events.some((event) => event.type === 'engaged'));
+  check('этаж проснулся', world.engaged === true);
+
+  /* Встаём на виду у выжившего: разбуженный этаж должен реагировать. */
+  const next = world.enemies.find((e) => e.alive);
+  world.player.x = next.x + TILE_SIZE * 2;
+  world.player.y = next.y;
+  run(world, 3);
+  check('после смерти за игроком уже гонятся',
+    world.enemies.some((e) => e.alive && e.state === 'chase') || !world.player.alive,
+    world.enemies.filter((e) => e.alive).map((e) => e.state).join(','));
+}
+
+/* --- P. Первый ход: молния в бочку --- */
+{
+  /*
+   * Ровно тот ход, ради которого обучалка и стоит первой: разряд в бочку,
+   * вода разливается, и ток идёт по ней ко всем, кто в этот момент в воде.
+   * Одно нажатие, три следствия — и ни одно из них не работает в одиночку.
+   */
+  const world = createWorld(TUTOR);
+  let barrel = -1;
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  }
+
+  const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
+  const by = (((barrel / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  const under = world.enemies.filter((enemy) => enemy.alive
+    && Math.abs(enemy.x - bx) <= TILE_SIZE * 1.2
+    && enemy.y - by > 0 && enemy.y - by <= TILE_SIZE * 1.6);
+  for (const enemy of world.enemies) {
+    if (!under.includes(enemy)) enemy.alive = false;
+  }
+
+  world.player.x = bx - TILE_SIZE * 4;
+  world.player.y = by;
+  cast(world, ['bolt'], 0);
+  run(world, 0.4);
+
+  check('молния вскрывает бочку', world.tiles[barrel] === TILE.FLOOR);
+  check('и тем же разрядом забирает всех, кто оказался в воде',
+    under.every((enemy) => !enemy.alive),
+    under.map((enemy) => (enemy.alive ? 'жив' : 'нет')).join(' '));
+}
+
+/* --- Q. Солома --- */
+{
+  const world = createWorld(TUTOR);
+  world.elements = [...ELEMENT_ORDER];
+
+  const hay = [];
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === TILE.HAY) hay.push(i);
+  }
+  check('в парке есть копна', hay.length >= 4, `${hay.length} клеток`);
+
+  /* Маг, стоящий у копны, — тот, ради кого её и поджигают. */
+  const victim = world.enemies.find((e) => e.alive);
+  for (const enemy of world.enemies) if (enemy !== victim) enemy.alive = false;
+
+  const edge = hay[0];
+  const hx = ((edge % world.w) + 0.5) * TILE_SIZE;
+  const hy = (((edge / world.w) | 0) + 0.5) * TILE_SIZE;
+  victim.x = hx;
+  victim.y = hy + TILE_SIZE;
+  victim.state = 'idle';
+  victim.resist = null;
+
+  world.player.x = hx - TILE_SIZE * 4;
+  world.player.y = hy;
+  cast(world, ['fire'], 0);
+  run(world, 0.4);
+
+  const left = hay.filter((i) => world.tiles[i] === TILE.HAY).length;
+  check('одна искра поджигает всю копну', left === 0, `осталось ${left}`);
+
+  run(world, FIRE_CATCH + BURN_TIME + 0.3);
+  check('стоящий у копны сгорает', !victim.alive);
+
+  /* Но не всё подряд: молния соломе безразлична. */
+  const dry = createWorld(TUTOR);
+  dry.elements = [...ELEMENT_ORDER];
+  dry.player.x = hx - TILE_SIZE * 4;
+  dry.player.y = hy;
+  cast(dry, ['bolt'], 0);
+  run(dry, 0.4);
+  check('молния солому не берёт', dry.tiles[edge] === TILE.HAY);
 }
 
 

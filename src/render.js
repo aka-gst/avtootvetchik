@@ -18,7 +18,7 @@
  * стекло или не вскрыли бочку, а тысяча клеток каждый кадр — чистая трата.
  */
 
-import { TILE, TILE_SIZE } from './level.js';
+import { TILE, TILE_SIZE, weakTo } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
@@ -328,6 +328,35 @@ export function createRenderer(canvas) {
         g.beginPath();
         g.arc(cx, cy, 13, 0, 6.29);
         g.stroke();
+        continue;
+      }
+
+      if (tile === TILE.HAY) {
+        /*
+         * Стог. Рисуется во всю клетку и с нахлёстом, чтобы несколько
+         * стогов читались одной копной, а не рядом кубиков: за копной
+         * прячутся, и её край должен быть неровным.
+         */
+        g.fillStyle = '#5a4520';
+        g.beginPath();
+        g.ellipse(cx, cy, 17, 16, 0, 0, 6.29);
+        g.fill();
+        g.fillStyle = '#8a6a2c';
+        g.beginPath();
+        g.ellipse(cx - 1, cy - 2, 14, 12, 0, 0, 6.29);
+        g.fill();
+
+        g.strokeStyle = '#c69a42';
+        g.lineWidth = 1;
+        g.globalAlpha = 0.65;
+        for (let k = 0; k < 5; k += 1) {
+          const a = (i * 7 + k * 13) % 10 / 10 * 6.29;
+          g.beginPath();
+          g.moveTo(cx + Math.cos(a) * 4, cy + Math.sin(a) * 4);
+          g.lineTo(cx + Math.cos(a) * 15, cy + Math.sin(a) * 13);
+          g.stroke();
+        }
+        g.globalAlpha = 1;
         continue;
       }
 
@@ -797,6 +826,16 @@ export function createRenderer(canvas) {
     }
   }
 
+  /* Чем ломается предмет — цветом стихии. Черта переводится в цвет один
+     раз здесь: игроку показывают не слово «crush», а комок земли. */
+  const WEAKNESS_COLOURS = {
+    burn: '#ff5a1f',
+    wet: '#4de1ff',
+    freeze: '#9fe8ff',
+    crush: '#d08a3e',
+    shock: '#ffe14d',
+  };
+
   function drawLock(g, world) {
     if (!world.locked) return;
     const { x, y } = world.locked;
@@ -813,6 +852,27 @@ export function createRenderer(canvas) {
       g.stroke();
     }
     g.globalAlpha = 1;
+
+    /*
+     * На захваченном предмете подписано, чем его брать. Без этого игроку
+     * пришлось бы помнить наизусть, что валун берёт земля, а кристалл
+     * молния, — а список будет расти.
+     */
+    if (world.locked.prop === undefined) return;
+    const need = weakTo(world.tiles[world.locked.prop]);
+    if (!need) return;
+
+    need.forEach((trait, k) => {
+      const ox = x + (k - (need.length - 1) / 2) * 9;
+      const oy = y - 22;
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      g.fillStyle = WEAKNESS_COLOURS[trait] || '#ffffff';
+      g.beginPath();
+      g.arc(ox, oy, 3.4, 0, 6.29);
+      g.fill();
+      g.restore();
+    });
   }
 
 

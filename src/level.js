@@ -86,20 +86,29 @@ export const TILE = {
    * что набирать. Номера начинаются с восьми, поэтому с версии 3 тип
    * клетки занимает четыре бита.
    */
-  BARREL: 8,   /* бочка с водой: огонь её вскрывает, вода разливается */
+  BARREL: 8,   /* бочка с водой: вскрывается многим, вода разливается */
   BOULDER: 9,  /* валун: берёт только земля */
   CRYSTAL: 10, /* кристалл: берёт только молния, и сам бьёт разрядом */
+  HAY: 11,     /* стог соломы: сквозь него не видно, и он горит */
 };
 
 /*
- * Чем что ломается. Черта вещества, а не стихия: лаву и жар роднит огонь,
- * и оба вскрывают бочку — перечислять составы поимённо значило бы
- * переписывать этот список при каждой новой смеси.
+ * Чем что ломается — списком, а не одной чертой.
+ *
+ * Тонкая бочка поддаётся многому: огню, разряду, тяжёлому удару землёй.
+ * Валун и кристалл — ровно одному, и в этом их смысл: они не препятствие,
+ * а вопрос «чем именно». Разница между «ломается многим» и «ломается
+ * одним» и есть вся тактика вокруг предметов.
+ *
+ * Проверяется черта вещества, а не стихия: лаву и жар роднит огонь, и оба
+ * вскрывают бочку. Перечислять составы поимённо значило бы переписывать
+ * этот список при каждой новой смеси.
  */
 export const TILE_WEAKNESS = {
-  [TILE.BARREL]: 'burn',
-  [TILE.BOULDER]: 'crush',
-  [TILE.CRYSTAL]: 'shock',
+  [TILE.BARREL]: ['burn', 'shock', 'crush'],
+  [TILE.BOULDER]: ['crush'],
+  [TILE.CRYSTAL]: ['shock'],
+  [TILE.HAY]: ['burn'],
 };
 
 export const ENTITY = {
@@ -134,6 +143,7 @@ const CHAR_TILE = {
   'o': TILE.BARREL,
   'O': TILE.BOULDER,
   '*': TILE.CRYSTAL,
+  'h': TILE.HAY,
 };
 
 const CHAR_ENTITY = {
@@ -153,8 +163,14 @@ export function blocksMove(tile) {
     || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL;
 }
 
+/*
+ * Солому не видно насквозь, но пройти сквозь неё можно — и в этом весь
+ * смысл стога: он укрытие, в котором стоят. Тем страшнее, когда он
+ * загорается вместе со стоящими.
+ */
 export function blocksSight(tile) {
-  return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.BOULDER;
+  return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.BOULDER
+    || tile === TILE.HAY;
 }
 
 export function blocksShot(tile) {
@@ -167,9 +183,17 @@ export function breakable(tile) {
   return tile === TILE.GLASS;
 }
 
-/* Предмет ломается только своим веществом — иначе он просто стена. */
+/* Чем ломается предмет: список черт или null, если ничем. */
 export function weakTo(tile) {
   return TILE_WEAKNESS[tile] || null;
+}
+
+/* Возьмёт ли это вещество этот предмет. Одна дверь на все места, где
+   спрашивают, — иначе правило разъедется по трём файлам. */
+export function brokenBy(tile, traits) {
+  const need = TILE_WEAKNESS[tile];
+  if (!need || !traits) return false;
+  return need.some((trait) => traits[trait]);
 }
 
 

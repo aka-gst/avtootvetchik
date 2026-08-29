@@ -11,6 +11,15 @@
  *   alert  идёт смотреть, откуда шумнуло
  *   chase  видит игрока и идёт убивать
  *   down   лежит после удара кулаком или брошенной битой
+ *
+ * До первой смерти этаж спит. Маг в парке — не тревога: пока никто не
+ * убит, на игрока смотрят и не трогают. Это и есть та половина игры,
+ * которой не хватало: комнату можно обойти, разглядеть, что где стоит, и
+ * подготовить ход — а бой начинается тогда, когда его начал ты.
+ *
+ * Считается именно смерть, а не шум и не вид заряженного. Иначе «тихая
+ * фаза» кончалась бы неизвестно от чего, и игрок не понимал бы, что
+ * именно её оборвало.
  */
 
 import { TILE_SIZE, BODY, WEAPONS, angleDelta, turnToward, clamp, hasSight, hasShot, emitNoise, tileIndex } from './world.js';
@@ -143,7 +152,15 @@ export function thinkEnemy(world, enemy, dt, speed) {
   const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
   const toPlayer = Math.atan2(player.y - enemy.y, player.x - enemy.x);
 
-  if (visible) {
+  /*
+   * Пока на этаже никто не умер, увиденный игрок — не повод бросаться.
+   * Взгляд за ним всё равно идёт: враг поворачивается и провожает, — но
+   * состояние не меняется, и удар не начинается.
+   */
+  if (visible && !world.engaged) {
+    enemy.notice = 0;
+    enemy.watching = 0.6;
+  } else if (visible) {
     enemy.notice = (enemy.notice || 0) + dt;
     if (enemy.notice > NOTICE_TIME && enemy.state !== 'chase') {
       enemy.state = 'chase';
@@ -154,6 +171,12 @@ export function thinkEnemy(world, enemy, dt, speed) {
     }
   } else {
     enemy.notice = Math.max(0, (enemy.notice || 0) - dt * 1.6);
+  }
+
+  /* Провожают взглядом: тихая фаза не должна выглядеть слепотой. */
+  if (enemy.watching > 0) {
+    enemy.watching -= dt;
+    enemy.angle = turnToward(enemy.angle, toPlayer, dt * 3);
   }
 
   switch (enemy.state) {

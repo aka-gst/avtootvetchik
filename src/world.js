@@ -13,13 +13,13 @@
  * врагов оружие осталось: бита и пистолет — это их роль, а не инвентарь.
  */
 
-import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable, weakTo } from './level.js';
+import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable, brokenBy } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
 import {
   GROUND, createField, updateField, groundAt, groundIndex, burningAt,
   paint, tilesInCircle, tilesInCone, tilesAlongLine,
   conductedTiles, conducts, cloudsBlock, addCloud,
-  SPILL, JOLT, BURN_TIME, WET_TIME, CHAIN_HOP,
+  SPILL, JOLT, FLARE, BURN_TIME, WET_TIME, CHAIN_HOP,
 } from './field.js';
 import { spellOf, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './magic.js';
 
@@ -300,6 +300,12 @@ export function createWorld(level) {
     noises: [],
     corpses: [],
 
+    /*
+     * Этаж спит, пока никто не умер. Первая смерть будит всех разом —
+     * см. thinkEnemy: до неё враги не переходят в погоню.
+     */
+    engaged: false,
+
     time: 0,
     kills: 0,
     total: 0,
@@ -552,6 +558,12 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
   if (!enemy.alive) return;
   enemy.alive = false;
   world.kills += 1;
+
+  /* Первая смерть — тот самый спусковой крючок. Дальше этаж живёт как жил. */
+  if (!world.engaged) {
+    world.engaged = true;
+    world.events.push({ type: 'engaged' });
+  }
 
   bleed(world, enemy.x, enemy.y, angle, cause === 'bullet' ? 260 : 190);
   pop(world, enemy.x, enemy.y, 16, '255,20,80');
@@ -950,8 +962,7 @@ function shatter(world, at, substance) {
   if (at < 0 || at >= world.tiles.length) return false;
 
   const tile = world.tiles[at];
-  const need = weakTo(tile);
-  if (!need || !substance || !substance.traits[need]) return false;
+  if (!substance || !brokenBy(tile, substance.traits)) return false;
 
   const x = ((at % world.w) + 0.5) * TILE_SIZE;
   const y = (((at / world.w) | 0) + 0.5) * TILE_SIZE;
@@ -967,6 +978,43 @@ function shatter(world, at, substance) {
     spark(world, x, y, 0, 3.2, 14, '#7fe6ff', 150);
     emitNoise(world, x, y, 260, 'barrel');
     world.events.push({ type: 'barrel', x, y });
+
+    /*
+     * Разряд, вскрывший бочку, идёт по той воде, которую сам и вылил.
+     * Иначе разбить её молнией было бы хуже, чем огнём: снаряд летит
+     * дальше и бьёт током уже где-то за спиной у мокрых. А это ровно тот
+     * ход, ради которого бочка в игре и стоит — одно нажатие, три
+     * следствия.
+     */
+    if (substance.traits.shock) discharge(world, x, y, substance);
+    return true;
+  }
+
+  if (tile === TILE.HAY) {
+    /*
+     * Стог не просто исчезает — он загорается, и вместе с ним всё вокруг.
+     * В этом его смысл: солома стоит там, где за ней прячутся, и укрытие
+     * превращается в костёр вместе со стоящими рядом.
+     *
+     * И солома поджигает солому: одной искры в край копны хватает, чтобы
+     * занялась вся. Без этого копна была бы девятью отдельными кустами, а
+     * поджог — девятью выстрелами; с этим она становится одной ловушкой,
+     * которую готовят заранее. Рекурсия конечна: клетка гасится в пол до
+     * того, как разойдётся дальше.
+     */
+    paint(world, tilesInCircle(world, x, y, TILE_SIZE * 1.3), FLARE, { x, y }, true);
+    spark(world, x, y, 0, 3.2, 16, '#ffb347', 200);
+    emitNoise(world, x, y, 300, 'hay');
+    world.events.push({ type: 'hay', x, y });
+
+    const tx = at % world.w;
+    const ty = (at / world.w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
+      shatter(world, ny * world.w + nx, FLARE);
+    }
     return true;
   }
 
@@ -1371,6 +1419,13 @@ function updateBullets(world, dt) {
     for (let i = 0; i < steps && bullet.life > 0; i += 1) {
       bullet.x += sx;
       bullet.y += sy;
+
+      /*
+       * Проходимое ломается на лету. Стог не держит снаряд — сквозь него
+       * можно и пройти, и выстрелить, — поэтому поджечь его можно только
+       * так: проверкой на каждом шагу полёта, а не в точке остановки.
+       */
+      if (bullet.substance) shatter(world, tileIndex(world, bullet.x, bullet.y), bullet.substance);
 
       /*
        * Сигнатура следа: вещество ложится на каждом шагу полёта, а не

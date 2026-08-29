@@ -67,6 +67,12 @@ export const SPILL = {
   colour: '#4de1ff', traits: { reach: 1, speed: 1, wet: 1, douse: 1 },
 };
 
+/* Пламя стога. Не заклинание и не смесь — свойство горящей соломы. */
+export const FLARE = {
+  id: 'flare', name: 'ПЛАМЯ', elements: ['fire'], pure: false,
+  colour: '#ff7a2a', traits: { reach: 1, speed: 1, burn: 1, lasting: 1 },
+};
+
 export const JOLT = {
   id: 'jolt', name: 'РАЗРЯД', elements: ['bolt'], pure: false,
   colour: '#ffe14d', traits: { reach: 1, speed: 1, shock: 1 },
