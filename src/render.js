@@ -1092,10 +1092,21 @@ export function createRenderer(canvas) {
   function drawPops(g, world) {
     for (const ring of world.pops) {
       const t = 1 - ring.life / ring.span;
+      const r = ring.r + (ring.max - ring.r) * t;
+
+      const image = tinted('fx-ring', `rgb(${ring.colour})`);
+      if (image) {
+        g.save();
+        g.globalAlpha = (1 - t) * 0.9;
+        g.drawImage(image, ring.x - r, ring.y - r, r * 2, r * 2);
+        g.restore();
+        continue;
+      }
+
       g.strokeStyle = `rgba(${ring.colour},${(1 - t) * 0.9})`;
       g.lineWidth = 3 * (1 - t) + 1;
       g.beginPath();
-      g.arc(ring.x, ring.y, ring.r + (ring.max - ring.r) * t, 0, 6.29);
+      g.arc(ring.x, ring.y, r, 0, 6.29);
       g.stroke();
     }
   }
@@ -1103,6 +1114,14 @@ export function createRenderer(canvas) {
   function drawParticles(g, world) {
     for (const particle of world.particles) {
       g.globalAlpha = Math.max(0, particle.life / particle.max);
+
+      const image = tinted('fx-spark', particle.color);
+      if (image) {
+        const r = particle.size * 1.6;
+        g.drawImage(image, particle.x - r / 2, particle.y - r / 2, r, r);
+        continue;
+      }
+
       g.fillStyle = particle.color;
       g.fillRect(particle.x - particle.size / 2, particle.y - particle.size / 2,
         particle.size, particle.size);
@@ -1118,6 +1137,15 @@ export function createRenderer(canvas) {
       const fade = Math.min(1, cloud.life / cloud.span);
       const r = cloud.r * (1 + (1 - fade) * 0.5);
       const core = cloud.kind === 'dust' ? '190,168,120' : '214,232,244';
+
+      const image = tinted('fx-smoke', `rgb(${core})`);
+      if (image) {
+        g.save();
+        g.globalAlpha = 0.5 * fade;
+        g.drawImage(image, cloud.x - r, cloud.y - r, r * 2, r * 2);
+        g.restore();
+        continue;
+      }
 
       const grad = g.createRadialGradient(cloud.x, cloud.y, r * 0.15, cloud.x, cloud.y, r);
       grad.addColorStop(0, `rgba(${core},${0.46 * fade})`);

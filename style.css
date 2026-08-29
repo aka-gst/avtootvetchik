@@ -469,6 +469,14 @@ html, body {
   box-shadow: 10px 10px 0 #05040a, 0 0 44px #76ff9f22;
 }
 
+/* Фон экрана звонка — ночной парк издалека. Поверх него идёт белый текст,
+   поэтому картинка притушена своим же слоем: читаемость важнее вида. */
+.veil[data-tone="call"] {
+  background-image: linear-gradient(#050b0ccc, #050b0ce6), url(art/screen-call.png);
+  background-size: cover, cover;
+  background-position: center, center;
+}
+
 .veil[data-tone="dead"] .veil-card { border-color: var(--pink); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ff2d9530; }
 .veil[data-tone="clear"] .veil-card { border-color: var(--amber); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ffe06b30; }
 .veil[data-tone="pause"] .veil-card { border-color: var(--violet); box-shadow: 10px 10px 0 #05040a, 0 0 44px #bc70ff30; }
