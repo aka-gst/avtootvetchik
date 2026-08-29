@@ -88,6 +88,11 @@ export function createRenderer(canvas) {
   const floorCtx = floorLayer.getContext('2d');
   let bakedFor = null;
 
+  /* Слой света: ночь кладётся сплошняком, а источники прожигают в ней
+     дыры — так тьма получается общей, а не набором пятен. */
+  const lightLayer = document.createElement('canvas');
+  const lightCtx = lightLayer.getContext('2d');
+
   let viewW = 0;
   let viewH = 0;
   let dpr = 1;
@@ -158,25 +163,6 @@ export function createRenderer(canvas) {
           floorCtx.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 8, TILE_SIZE - 8);
           floorCtx.globalAlpha = 1;
         }
-      }
-    }
-
-    /* Пятна фонарей печатаются вместе с полом: свет неподвижен, а
-       пересчитывать градиенты каждый кадр — самое дорогое в canvas. */
-    for (let ty = 0; ty < world.h; ty += 1) {
-      for (let tx = 0; tx < world.w; tx += 1) {
-        if (world.tiles[ty * world.w + tx] !== TILE.WALL || !hasLamp(tx, ty)) continue;
-        const cx = tx * TILE_SIZE + HALF;
-        const cy = ty * TILE_SIZE + HALF;
-        const r = TILE_SIZE * 2.8;
-        const glow = floorCtx.createRadialGradient(cx, cy, 2, cx, cy, r);
-        glow.addColorStop(0, hexToRgba(theme.wallEdge, 0.2));
-        glow.addColorStop(1, hexToRgba(theme.wallEdge, 0));
-        floorCtx.save();
-        floorCtx.globalCompositeOperation = 'lighter';
-        floorCtx.fillStyle = glow;
-        floorCtx.fillRect(cx - r, cy - r, r * 2, r * 2);
-        floorCtx.restore();
       }
     }
 
@@ -996,6 +982,140 @@ export function createRenderer(canvas) {
      КАДР
      ======================================================= */
 
+  /*
+   * Свет.
+   *
+   * Ночь здесь не палитра, а слой: поверх кадра ложится тьма, и источники
+   * прожигают в ней дыры. Разница с прежним «нарисуем пятно под фонарём»
+   * принципиальная. Раньше пятна светлели поверх, и без источника было
+   * ровно так же светло; теперь без источника темно, и фонарь, костёр или
+   * собственный посох — единственное, что видно.
+   *
+   * Это же чинит и то, ради чего затевалось поле: пожар освещает комнату,
+   * и по зареву видно, что где-то горит, — раньше об этом сообщала только
+   * сама клетка, на которую надо было смотреть.
+   */
+  const NIGHT = 'rgba(3,9,10,0.82)';
+
+  function collectLights(world, theme, camX, camY, halfW, halfH) {
+    const lights = [];
+    const near = (x, y, pad) => Math.abs(x - camX) < halfW + pad
+      && Math.abs(y - camY) < halfH + pad;
+    const add = (x, y, r, colour, power) => lights.push({ x, y, r, colour, power });
+
+    /* Фонари на оградах — единственный неподвижный свет в кадре. */
+    for (let ty = 0; ty < world.h; ty += 1) {
+      for (let tx = 0; tx < world.w; tx += 1) {
+        if (world.tiles[ty * world.w + tx] !== TILE.WALL || !hasLamp(tx, ty)) continue;
+        const x = tx * TILE_SIZE + HALF;
+        const y = ty * TILE_SIZE + HALF;
+        if (near(x, y, 200)) add(x, y, 165, theme.wallEdge, 0.72);
+      }
+    }
+
+    /* Огонь на полу. Клеток бывает много, поэтому светит каждая вторая:
+       на глаз разницы нет, а градиентов вдвое меньше. */
+    if (world.ground) {
+      for (let i = 0; i < world.ground.length; i += 2) {
+        if (world.ground[i] !== GROUND.FIRE) continue;
+        const x = (i % world.w) * TILE_SIZE + HALF;
+        const y = ((i / world.w) | 0) * TILE_SIZE + HALF;
+        if (!near(x, y, 160)) continue;
+        const caught = Math.min(1, world.groundAge[i] / FIRE_CATCH);
+        add(x, y, 105 + Math.random() * 25, '#ff7a2a', 0.45 + caught * 0.5);
+      }
+    }
+
+    /* Заряженный маг светит сам — и потому в темноте заметен первым. */
+    const player = world.player;
+    if (player.alive) {
+      const held = player.chargeLeft > 0 ? colourOf(player.charging)
+        : (player.stack.length ? colourOf(player.stack[player.stack.length - 1]) : '#9df9ff');
+      add(player.x, player.y, 155,
+        held, Math.min(1, 0.55 + player.stack.length * 0.15));
+    }
+
+    for (const enemy of world.enemies) {
+      if (!enemy.alive || !near(enemy.x, enemy.y, 120)) continue;
+      const colour = enemy.resist ? colourOf(enemy.resist)
+        : (enemy.element ? colourOf(enemy.element) : null);
+      if (colour) add(enemy.x, enemy.y, 74, colour, 0.5);
+      if (enemy.burning > 0) add(enemy.x, enemy.y, 115, '#ff7a2a', 0.9);
+    }
+
+    for (const bullet of world.bullets) {
+      if (!near(bullet.x, bullet.y, 100)) continue;
+      add(bullet.x, bullet.y, bullet.nova ? 135 : 82, bullet.colour || '#ffe06b', 0.8);
+    }
+
+    for (const blast of world.blasts) {
+      const fade = Math.max(0, blast.life / blast.span);
+      if (fade <= 0) continue;
+      add(blast.x, blast.y, (blast.radius || blast.reach || 120) * 1.7,
+        blast.tint || blast.colour || '#ffffff', fade);
+    }
+
+    return lights;
+  }
+
+  function drawLights(world, theme, camX, camY, zoom, shakeX, shakeY, halfW, halfH) {
+    if (lightLayer.width !== canvas.width || lightLayer.height !== canvas.height) {
+      lightLayer.width = canvas.width;
+      lightLayer.height = canvas.height;
+    }
+
+    const g = lightCtx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, viewW, viewH);
+    g.fillStyle = NIGHT;
+    g.fillRect(0, 0, viewW, viewH);
+
+    const lights = collectLights(world, theme, camX, camY, halfW, halfH);
+
+    g.save();
+    g.translate(viewW / 2, viewH / 2);
+    g.scale(zoom, zoom);
+    g.translate(-camX + shakeX, -camY + shakeY);
+
+    /* Дыры в темноте. Мягкий край обязателен: резкий круг читается как
+       дырка в бумаге, а не как свет. */
+    g.globalCompositeOperation = 'destination-out';
+    for (const light of lights) {
+      const power = Math.min(1, light.power);
+      const grad = g.createRadialGradient(light.x, light.y, 1, light.x, light.y, light.r);
+      grad.addColorStop(0, `rgba(0,0,0,${power})`);
+      grad.addColorStop(0.45, `rgba(0,0,0,${power * 0.55})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.fillRect(light.x - light.r, light.y - light.r, light.r * 2, light.r * 2);
+    }
+    g.restore();
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(lightLayer, 0, 0);
+
+    /*
+     * Второй проход — цветом. Тьма показывает, где светло; этот проход —
+     * каким оно светится. Без него огонь и разряд освещают одинаково
+     * белым, и цвет стихии, главный язык игры, пропадает.
+     */
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.save();
+    ctx.translate(viewW / 2, viewH / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camX + shakeX, -camY + shakeY);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const light of lights) {
+      const grad = ctx.createRadialGradient(light.x, light.y, 1, light.x, light.y, light.r);
+      grad.addColorStop(0, hexToRgba(light.colour, 0.15 * Math.min(1, light.power)));
+      grad.addColorStop(1, hexToRgba(light.colour, 0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(light.x - light.r, light.y - light.r, light.r * 2, light.r * 2);
+    }
+    ctx.restore();
+  }
+
   function draw(world, view) {
     if (bakedFor !== world || world.rebake) { bake(world); world.rebake = false; }
 
@@ -1044,6 +1164,8 @@ export function createRenderer(canvas) {
     drawClouds(ctx, world);
 
     ctx.restore();
+
+    drawLights(world, theme, camX, camY, zoom * punch, shakeX, shakeY, halfW, halfH);
 
     if (world.fx.flash > 0.01) {
       ctx.fillStyle = `rgba(120,255,214,${world.fx.flash * 0.2})`;
