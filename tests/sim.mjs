@@ -1013,9 +1013,24 @@ function cast(world, stack, angle) {
   world.player.x = bx - TILE_SIZE * 4;
   world.player.y = by;
   cast(world, ['fire'], 0);
-  run(world, 0.25);
+
+  /*
+   * Цепочка разложена по времени, и порядок в ней — не украшение, а
+   * условие: игрок должен успеть увидеть, что бочку вскрыло раньше, чем
+   * потекла вода. Поэтому меряется не «случилось ли», а «что за чем»:
+   * кадр, в котором бочки не стало, и кадр, в котором намок первый.
+   */
+  let brokeAt = -1;
+  let wetAt = -1;
+  for (let i = 0; i < 90; i += 1) {
+    update(world, DT, idle);
+    if (brokeAt < 0 && world.tiles[barrel] === TILE.FLOOR) brokeAt = i;
+    if (wetAt < 0 && under.some((enemy) => (enemy.wet || 0) > 0)) wetAt = i;
+  }
 
   check('огонь вскрыл бочку', world.tiles[barrel] === TILE.FLOOR);
+  check('вода потекла после того, как бочку вскрыло',
+    brokeAt >= 0 && wetAt > brokeAt, `бочка ${brokeAt}, вода ${wetAt}`);
   check('трое стали мокрыми', under.every((enemy) => !enemy.alive || enemy.wet > 0),
     under.map((enemy) => (enemy.wet || 0).toFixed(1)).join(' '));
 
@@ -1031,9 +1046,27 @@ function cast(world, stack, angle) {
    */
   world.player.x = bx - TILE_SIZE * 10;
   cast(world, ['bolt'], 0);
-  run(world, 0.4);
 
+  /* Та же проверка порядка на второй половине хода: сначала трясёт, потом
+     падают. Разряд, убивающий в тот же кадр, в котором пришёл, читается
+     как «все просто умерли» — ровно то, чего быть не должно. */
+  const zapAt = new Map();
+  const deadAt = new Map();
+  for (let i = 0; i < 150; i += 1) {
+    update(world, DT, idle);
+    for (const enemy of under) {
+      if (!zapAt.has(enemy) && (enemy.zap || 0) > 0) zapAt.set(enemy, i);
+      if (!deadAt.has(enemy) && !enemy.alive) deadAt.set(enemy, i);
+    }
+  }
+
+  /* Считается по каждому отдельно: снаряд по дороге может убить одного
+     напрямую, и общий «первый умерший» мерил бы не цепочку. */
+  const jolted = [...zapAt.keys()];
   check('игрок при этом уцелел', world.player.alive);
+  check('пойманных цепью сначала бьёт током, потом убивает',
+    jolted.length > 0 && jolted.every((enemy) => deadAt.get(enemy) > zapAt.get(enemy)),
+    jolted.map((enemy) => `${zapAt.get(enemy)}→${deadAt.get(enemy)}`).join(' '));
   check('разряд по луже забрал всех троих',
     under.every((enemy) => !enemy.alive),
     under.map((enemy) => (enemy.alive ? 'жив' : 'нет')).join(' '));
@@ -1149,7 +1182,10 @@ function cast(world, stack, angle) {
   world.player.x = bx - TILE_SIZE * 4;
   world.player.y = by;
   cast(world, ['bolt'], 0);
-  run(world, 0.4);
+
+  /* Цепочке нужно время: бочку вскрыло, вода разошлась, разряд добежал,
+     тела отдёргались. Секунды хватает на всё четыре шага с запасом. */
+  run(world, 1.1);
 
   check('молния вскрывает бочку', world.tiles[barrel] === TILE.FLOOR);
   check('и тем же разрядом забирает всех, кто оказался в воде',

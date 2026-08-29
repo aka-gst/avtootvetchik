@@ -328,6 +328,7 @@ export function createWorld(level) {
     flowFrom: -1,
 
     fx: { shake: 0, hitstop: 0, flash: 0, punch: 0 },
+    beats: [],
     events: [],
   };
 
@@ -1018,6 +1019,43 @@ function land(world, tiles, substance, at, force = false) {
  * бочку; перечислять составы поимённо значило бы править этот список при
  * каждой новой смеси.
  */
+/*
+ * ОТЛОЖЕННЫЕ ШАГИ
+ * =========================================================
+ * Цепочка из бочки — главный ход игры: одно нажатие, три следствия.
+ * Пока все три случались в одном кадре, игрок видел только результат:
+ * все умерли. Причина была не видна, а значит и не читалась как своя
+ * заслуга. Поэтому следствия разложены по времени и идут по очереди:
+ * бочку вскрыло, вода разошлась, разряд добежал, тела задёргались.
+ *
+ * Очередь живёт внутри мира и умирает вместе с ним: перезапуск этажа
+ * не может донести до нового мира чужой взрыв.
+ */
+/* Скорость, с которой разряд бежит по воде, и сколько тело дёргается,
+   прежде чем упасть. Обе величины про читаемость, а не про баланс: ниже
+   них цепочка снова слипается в один кадр. */
+const ARC_SPEED = 900;
+const STUN_TIME = 0.18;
+
+function schedule(world, delay, run) {
+  world.beats.push({ left: delay, run });
+}
+
+function runBeats(world, dt) {
+  if (!world.beats.length || dt <= 0) return;
+
+  /* Шаг может поставить следующий — он попадёт уже в новый кадр. */
+  const due = [];
+  world.beats = world.beats.filter((beat) => {
+    beat.left -= dt;
+    if (beat.left > 0) return true;
+    due.push(beat);
+    return false;
+  });
+
+  for (const beat of due) beat.run();
+}
+
 function shatter(world, at, substance) {
   if (at < 0 || at >= world.tiles.length) return false;
 
@@ -1032,21 +1070,35 @@ function shatter(world, at, substance) {
   world.fx.shake = Math.max(world.fx.shake, 5);
 
   if (tile === TILE.BARREL) {
-    /* Вода льётся на соседние клетки, а не только на свою: лужа в одну
-       клетку никого не поймает, и бочка была бы просто мусором. */
-    paint(world, tilesInCircle(world, x, y, TILE_SIZE * 1.7), SPILL, { x, y }, true);
+    /* Сначала — только грохот и осколки. Воды ещё нет. */
     spark(world, x, y, 0, 3.2, 14, '#7fe6ff', 150);
     emitNoise(world, x, y, 260, 'barrel');
     world.events.push({ type: 'barrel', x, y });
+    world.fx.hitstop = Math.max(world.fx.hitstop, 0.05);
 
     /*
-     * Разряд, вскрывший бочку, идёт по той воде, которую сам и вылил.
-     * Иначе разбить её молнией было бы хуже, чем огнём: снаряд летит
-     * дальше и бьёт током уже где-то за спиной у мокрых. А это ровно тот
-     * ход, ради которого бочка в игре и стоит — одно нажатие, три
-     * следствия.
+     * Вода расходится двумя кольцами, а не появляется готовой лужей:
+     * игрок должен успеть увидеть, что она течёт под ноги врагу. Льётся
+     * она на соседние клетки, а не только на свою — лужа в одну клетку
+     * никого не поймает, и бочка была бы просто мусором.
      */
-    if (substance.traits.shock) discharge(world, x, y, substance);
+    schedule(world, 0.10, () => {
+      paint(world, tilesInCircle(world, x, y, TILE_SIZE * 0.9), SPILL, { x, y }, true);
+    });
+    schedule(world, 0.22, () => {
+      paint(world, tilesInCircle(world, x, y, TILE_SIZE * 1.7), SPILL, { x, y }, true);
+      world.events.push({ type: 'spill', x, y });
+    });
+
+    /*
+     * Разряд, вскрывший бочку, идёт по той воде, которую сам и вылил, —
+     * но идёт последним, когда воде уже есть где стоять. Это тот самый
+     * ход, ради которого бочка в игре и стоит: одно нажатие, три
+     * следствия, и все три видно по очереди.
+     */
+    if (substance.traits.shock) {
+      schedule(world, 0.34, () => discharge(world, x, y, substance));
+    }
     return true;
   }
 
@@ -1167,20 +1219,49 @@ function discharge(world, x, y, substance) {
 
   if (!hit.size) return;
 
-  for (const body of hit) {
-    const angle = Math.atan2(body.y - y, body.x - x);
-    if (body === world.player) {
-      world.events.push({ type: 'shocked-self' });
-      killPlayer(world, angle);
-      continue;
-    }
-    if (resisted(world, body, angle, { elements: substance.elements })) continue;
-    killEnemy(world, body, angle, 'chain',
-      { by: 'player', weapon: 'daemon', elements: substance.elements });
-  }
-
+  /* Треск идёт сразу: он и есть предупреждение тем, кто стоит в воде. */
   world.events.push({ type: 'chain', size: hit.size });
   world.fx.flash = Math.max(world.fx.flash, 0.2);
+
+  for (const body of hit) {
+    const angle = Math.atan2(body.y - y, body.x - x);
+
+    /*
+     * Разряд не возникает всюду разом — он добегает. Дальний в луже
+     * дёргается позже ближнего, и по этой задержке видно, что убило их
+     * одно и то же, а не пять отдельных случайностей.
+     */
+    const travel = Math.min(0.3, Math.hypot(body.x - x, body.y - y) / ARC_SPEED);
+
+    schedule(world, travel, () => {
+      if (!body.alive) return;
+
+      /*
+       * Сначала бьёт — тело дёргается. Смерть приходит следом.
+       * Оглушение берётся то же самое, что у сорванного щита: оно уже
+       * выключает управление, и врага не должно тянуть стрелять в момент,
+       * когда его бьёт током.
+       */
+      body.zap = Math.max(body.zap || 0, STUN_TIME);
+      if (body !== world.player) {
+        body.stagger = Math.max(body.stagger || 0, STUN_TIME);
+      }
+      spark(world, body.x, body.y, angle, 2.4, 9, '#9fe8ff', 130);
+      world.fx.shake = Math.max(world.fx.shake, 3);
+
+      schedule(world, STUN_TIME, () => {
+        if (!body.alive) return;
+        if (body === world.player) {
+          world.events.push({ type: 'shocked-self' });
+          killPlayer(world, angle);
+          return;
+        }
+        if (resisted(world, body, angle, { elements: substance.elements })) return;
+        killEnemy(world, body, angle, 'chain',
+          { by: 'player', weapon: 'daemon', elements: substance.elements });
+      });
+    });
+  }
 }
 
 /*
@@ -1251,6 +1332,12 @@ export function update(world, dt, intent) {
   world.fx.shake = Math.max(0, world.fx.shake - dt * 26);
   world.fx.flash = Math.max(0, world.fx.flash - dt * 3.2);
   world.fx.punch = Math.max(0, world.fx.punch - dt * 4);
+
+  runBeats(world, dt);
+
+  /* Метка «бьёт током» гаснет сама — её носят и живые, и игрок. */
+  world.player.zap = Math.max(0, (world.player.zap || 0) - dt);
+  for (const enemy of world.enemies) enemy.zap = Math.max(0, (enemy.zap || 0) - dt);
 
   if (world.state === 'play') world.time += dt;
 

@@ -865,6 +865,17 @@ export function createRenderer(canvas) {
     for (const enemy of world.enemies) {
       if (!enemy.alive) continue;
 
+      /*
+       * Пока по телу идёт ток, его трясёт. Смещается весь маг целиком, а
+       * не свечение под ним: дёргаться должен человек, иначе непонятно,
+       * что с ним происходит, и смерть выглядит беспричинной.
+       */
+      const jolt = (enemy.zap || 0) > 0;
+      if (jolt) {
+        g.save();
+        g.translate((Math.random() - 0.5) * 3.6, (Math.random() - 0.5) * 3.6);
+      }
+
       stateMark(g, world, enemy);
 
       /*
@@ -907,7 +918,39 @@ export function createRenderer(canvas) {
         g.fill();
         g.restore();
       }
+
+      if (jolt) {
+        arcs(g, enemy);
+        g.restore();
+      }
     }
+  }
+
+  /*
+   * Дуги вокруг бьющегося током. Рисуются ломаной от края тела наружу и
+   * каждый кадр другие: ровные лучи читались бы как заклинание игрока, а
+   * это с ним происходит, а не он это делает.
+   */
+  function arcs(g, body_) {
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = '#9fe8ff';
+    g.lineWidth = 1.6;
+    for (let i = 0; i < 5; i += 1) {
+      const a = Math.random() * 6.29;
+      let x = body_.x + Math.cos(a) * (BODY - 2);
+      let y = body_.y + Math.sin(a) * (BODY - 2);
+      g.globalAlpha = 0.5 + Math.random() * 0.5;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let k = 0; k < 3; k += 1) {
+        x += Math.cos(a) * 5 + (Math.random() - 0.5) * 7;
+        y += Math.sin(a) * 5 + (Math.random() - 0.5) * 7;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    g.restore();
   }
 
   function drawPlayer(g, world) {
@@ -932,6 +975,7 @@ export function createRenderer(canvas) {
     g.restore();
 
     stateMark(g, world, player);
+    if ((player.zap || 0) > 0) arcs(g, player);
 
     mage(g, {
       x: player.x, y: player.y, angle: player.angle,

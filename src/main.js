@@ -117,6 +117,7 @@ const SFX_BY_EVENT = {
   chain: 'chain',
   ignite: 'ignite',
   doused: 'doused',
+  spill: 'doused',
 };
 
 let levelIndex = 0;
@@ -795,7 +796,9 @@ function drainEvents() {
       setToast(`ЦЕПЬ ×${event.size}`, 1.8);
       vibrate([15, 25, 15]);
     } else if (event.type === 'barrel') {
-      setToast('БОЧКА ВСКРЫТА — ВОДА НА ПОЛУ', 1.6);
+      /* Про воду больше не пишем: она теперь растекается на глазах, и
+         подпись успевала объявить её раньше, чем она появлялась. */
+      setToast('БОЧКА ВСКРЫТА', 1.4);
     } else if (event.type === 'crystal') {
       setToast('КРИСТАЛЛ ОТДАЛ РАЗРЯД', 1.6);
     } else if (event.type === 'hay') {
