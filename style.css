@@ -2,17 +2,22 @@
  * АВТООТВЕТЧИК — оболочка.
  *
  * Игра занимает весь экран, интерфейс лежит поверх холста. Всё, что
- * можно, сделано на CSS: развёртка, зерно и свечение не должны стоить
- * кадров, их и так мало на телефоне.
+ * можно, сделано на CSS: свечение не должно стоить кадров, их и так мало
+ * на телефоне.
+ *
+ * Палитра — ночной кибер-парк: холодная зелень земли, мятный и голубой
+ * свет фонарей, янтарь на предупреждениях. Прежняя кассетная лиловая
+ * гамма ушла вместе с плёночными слоями: она принадлежала другой игре, и
+ * две игры одного автора не должны выглядеть одной.
  */
 
 :root {
-  --ink: #08070d;
-  --acid: #76ff9f;
-  --violet: #bc70ff;
-  --pink: #ff2d95;
-  --amber: #ffe06b;
-  --paper: #f6edff;
+  --ink: #050b0c;
+  --acid: #3dffb4;
+  --violet: #7df3ff;
+  --pink: #ff5d8f;
+  --amber: #ffc95a;
+  --paper: #e8fbf6;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -75,49 +80,6 @@ html, body {
 
 @media (max-height: 600px) and (orientation: landscape) {
   .game-home-menu { padding: 8px 10px; }
-}
-
-
-/* =========================================================
-   ПЛЁНКА
-   ========================================================= */
-
-.grain, .sweep {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-}
-
-.grain {
-  background: repeating-linear-gradient(
-    180deg,
-    rgba(0, 0, 0, .22) 0 1px,
-    rgba(0, 0, 0, 0) 1px 3px
-  );
-  mix-blend-mode: multiply;
-  opacity: .55;
-}
-
-/* Одна полоса, медленно ползущая сверху вниз, — вся «кассетность» кадра. */
-.sweep {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(188, 112, 255, .07) 45%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  height: 38vh;
-  animation: sweep 7.5s linear infinite;
-}
-
-@keyframes sweep {
-  from { transform: translateY(-45vh); }
-  to { transform: translateY(115vh); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sweep { animation: none; opacity: .35; }
 }
 
 

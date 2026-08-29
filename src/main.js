@@ -423,9 +423,10 @@ function buildIntent(raw) {
   } else if (!raw.touch && raw.mouse.moved) {
     locked = null;
     world.locked = null;
-    const worldX = lastView.camX + (raw.mouse.x - canvas.clientWidth / 2) / lastView.zoom;
-    const worldY = lastView.camY + (raw.mouse.y - canvas.clientHeight / 2) / lastView.zoom;
-    intent.aimAngle = assistAim(world, Math.atan2(worldY - player.y, worldX - player.x), AIM_CONE.mouse);
+    /* Курсор показывает на ромб, а мир считает по квадрату: перевод знает
+       только отрисовка, у неё и спрашиваем. */
+    const at = renderer.toWorld(raw.mouse.x, raw.mouse.y, lastView);
+    intent.aimAngle = assistAim(world, Math.atan2(at.y - player.y, at.x - player.x), AIM_CONE.mouse);
   } else {
     /*
      * Мышь не трогают — значит, играют с клавиатуры, и прицел держится за
@@ -757,10 +758,15 @@ function frame(now) {
      * Сколько мира влезло в экран — знает только камера, а нужно это ИИ.
      * Кладём радиус в мир: стрелки не станут бить из невидимого.
      */
+    /*
+     * В изометрии экранный пиксель короче мирового по вертикали вдвое, и
+     * прямой перевод дал бы стрелкам вдвое большую дальность, чем игрок
+     * видит. Берём меньшую из сторон и делим на диагональ ромба.
+     */
     world.viewRadius = Math.min(
       canvas.clientWidth / (2 * lastView.zoom),
-      canvas.clientHeight / (2 * lastView.zoom),
-    ) - 24;
+      canvas.clientHeight / lastView.zoom,
+    ) / 1.42 - 24;
     drawSticks(raw);
   }
 
