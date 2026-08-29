@@ -1154,8 +1154,6 @@ window.avto = {
      не крутится, а спросить напрямую можно всегда. */
   get input() { return input; },
   get renderer() { return renderer; },
-  get view() { return lastView; },
-  get picked() { return picked; },
 };
 
 const fromHash = levelFromHash();

@@ -1,0 +1,63 @@
+#!/usr/bin/env sh
+# Проверки pre-commit. Запуск: sh .githooks/test-pre-commit
+#
+# Ни одного личного значения здесь нет: для сценария с личными данными
+# берётся первая строка из списка, а не зашитая константа. Иначе тест сам
+# стал бы тем, что он ищет. Путь к списку — тот же, что у хука.
+
+set -eu
+root=$(git rev-parse --show-toplevel)
+words="${PRIVATE_WORDS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/aka-gst/private-words.txt}"
+cd "$root"
+probe="hook-probe-$$.txt"
+passed=0
+failed=0
+
+cleanup() {
+  git rm -q --cached "$probe" >/dev/null 2>&1 || true
+  rm -f "$probe"
+}
+trap cleanup EXIT
+
+case_is() {
+  want="$1"; name="$2"; body="$3"
+  printf '%s\n' "$body" > "$probe"
+  git add -f "$probe"
+  got=pass
+  .githooks/pre-commit >/dev/null 2>&1 || got=block
+  git rm -q --cached "$probe" >/dev/null 2>&1 || true
+  rm -f "$probe"
+  if [ "$got" = "$want" ]; then
+    passed=$((passed + 1)); printf '  ok    %s\n' "$name"
+  else
+    failed=$((failed + 1)); printf '  FAIL  %s: ждали %s, получили %s\n' "$name" "$want" "$got"
+  fi
+}
+
+# Образцы собираются из кусков: целого токена в этом файле быть не должно,
+# иначе хук справедливо заблокирует собственные тесты. Отключать проверку
+# для этого файла нельзя — тогда настоящий секрет, вставленный сюда, пройдёт.
+gh=$(printf '%s_%s' 'ghp' 'abcdefghijklmnopqrstuvwxyz0123456789')
+tg=$(printf '%s%s%s' 'bot123456789' ':' 'AAHqwertyuiopasdfghjklzxcvbnm12345678')
+pk=$(printf -- '-----BEGIN OPENSSH %s %s-----' 'PRIVATE' 'KEY')
+aws=$(printf '%s%s' 'AKIA' 'IOSFODNN7EXAMPLE')
+
+case_is block 'токен GitHub' "TOKEN=$gh"
+case_is block 'токен Telegram-бота' "T=$tg"
+case_is block 'приватный ключ' "$pk"
+case_is block 'ключ AWS' "AWS=$aws"
+case_is pass  'проза про токены не ловится' 'Invalid GitHub token: выполнить gh auth login, password: в менеджере'
+case_is pass  'чужие публичные контакты не ловятся' 'Телефон: +7 (911) 970-97-27, почта info@orion-center.ru'
+case_is pass  'обычный текст' 'Практикум состоит из 19 разделов.'
+
+if [ -f "$words" ]; then
+  word=$(grep -v '^#' "$words" | grep -v '^$' | head -1)
+  if [ -n "$word" ]; then
+    case_is block 'значение из локального списка' "Автор: $word, тестировщик."
+  fi
+else
+  printf '  skip  список личных данных отсутствует\n'
+fi
+
+printf '\n%s пройдено, %s провалено\n' "$passed" "$failed"
+[ "$failed" -eq 0 ]

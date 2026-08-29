@@ -1,0 +1,79 @@
+#!/usr/bin/env sh
+# Не пускает в публичный репозиторий секреты и личные данные.
+#
+# Смотрит индекс целиком, а не только изменённые файлы: утечка может лежать
+# в файле, который сейчас не трогают, — так и нашлась первая.
+#
+# Два вида правил:
+#   1. Секреты — по форме самого ключа. Прозу вроде «Invalid GitHub token»
+#      не задевают, потому что ищется структура, а не слово.
+#   2. Личные данные — по списку, который лежит ВНЕ дерева сайта:
+#      ~/.config/aka-gst/private-words.txt (переопределяется
+#      переменной PRIVATE_WORDS_FILE). Раньше он лежал в .githooks/ и не
+#      версионировался — но команда выкладки копирует дерево, а не индекс
+#      git, так что файл со списком имён уехал бы на публичный сервер.
+#
+# Проверка отказывает в сторону блокировки: если git grep сломался, коммит
+# не проходит. Молча пропустить — хуже, чем ложно остановить.
+#
+# Обойти осознанно: git commit --no-verify
+
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+words="${PRIVATE_WORDS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/aka-gst/private-words.txt}"
+stray="$root/.githooks/private-words.txt"
+findings=$(mktemp)
+trap 'rm -f "$findings"' EXIT
+
+# git grep возвращает 1, когда совпадений нет, и >1 при настоящей ошибке.
+# Внимание: --cached обязан идти ДО паттерна, иначе git примет его за ревизию.
+scan() {
+  label="$1"
+  shift
+  rc=0
+  out=$(git grep --cached -In "$@" -- . 2>&1) || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    printf '\n  Проверка сломалась и поэтому останавливает коммит:\n    %s\n\n' "$out" >&2
+    exit 2
+  fi
+  [ "$rc" -eq 0 ] || return 0
+  # Печатаем только файл и строку: само значение не должно попасть
+  # ни в терминал, ни в логи.
+  printf '%s\n' "$out" | cut -d: -f1,2 | sed "s|^|$label|" >> "$findings"
+}
+
+# Список внутри дерева — сам по себе утечка: выкладка его опубликует.
+if [ -e "$stray" ]; then
+  printf 'файл не для публикации:  .githooks/private-words.txt — перенесите в %s\n' "$words" >> "$findings"
+fi
+
+# --- Файлы, которых в репозитории быть не должно ---
+git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
+  | grep -E '(^|/)\.env$|\.pem$|\.key$|id_rsa|id_ed25519|\.p12$|\.pfx$' \
+  | sed 's|^|файл не для публикации:  |' >> "$findings" || true
+
+# --- Секреты по форме ключа ---
+scan 'похоже на секрет:        ' -E -- '-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{60,}|bot[0-9]{8,10}:[A-Za-z0-9_-]{35}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{32,}'
+
+# --- Личные данные из локального списка ---
+if [ -f "$words" ]; then
+  while IFS= read -r word || [ -n "$word" ]; do
+    case "$word" in ''|'#'*) continue ;; esac
+    scan 'личные данные:           ' -i -F -- "$word"
+  done < "$words"
+else
+  printf '\n  ! Нет %s — на личные данные не проверено.\n' "$words"
+  printf '    Создайте его по образцу .githooks/private-words.example.\n'
+  printf '    В дерево сайта класть нельзя: выкладка публикует дерево целиком.\n'
+fi
+
+if [ -s "$findings" ]; then
+  printf '\n  Коммит остановлен: в индексе есть то, что нельзя публиковать.\n\n'
+  sort -u "$findings" | sed 's|^|    |'
+  printf '\n  Ничего не закоммичено. Уберите находки — или, если это ложное\n'
+  printf '  срабатывание, повторите с --no-verify осознанно.\n\n'
+  exit 1
+fi
+
+exit 0

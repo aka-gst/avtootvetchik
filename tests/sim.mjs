@@ -18,7 +18,7 @@ import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex, killEnemy
 import { buildFlowField } from '../src/ai.js';
 import { TILE, blocksMove, decode, encode, elementMask, elementsFromMask, weakTo, brokenBy } from '../src/level.js';
 import { createScore } from '../src/score.js';
-import { AIM_CONE, assistAim, closeThreat, lockTarget, cycleTarget, lockCandidates } from '../src/aim.js';
+import { AIM_CONE, assistAim, closeThreat, lockTarget, cycleTarget, lockCandidates, targetNear } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
 import {
   GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH, BURN_TIME,
@@ -953,7 +953,10 @@ function cast(world, stack, angle) {
   /* Бочка нужна не тем, что исчезает, а тем, что остаётся после неё. */
   const spill = withTile(TILE.BARREL);
   cast(spill.world, ['fire'], 0);
-  run(spill.world, 0.4);
+
+  /* Лужа растекается кольцами до 0.36 секунды после вскрытия — считать
+     клетки раньше значит мерить недотёкшую воду. */
+  run(spill.world, 0.9);
   let wet = 0;
   for (let i = 0; i < spill.world.ground.length; i += 1) {
     if (spill.world.ground[i] === GROUND.WATER) wet += 1;
@@ -1115,6 +1118,52 @@ function cast(world, stack, angle) {
   world.tiles[barrel] = 0;
   check('разбитая бочка из целей уходит',
     !lockCandidates(world, 0).some((t) => t.prop === barrel));
+}
+
+
+/* --- N2. В непрозрачное тоже можно ткнуть --- */
+{
+  /*
+   * Стог, валун и ящик загораживают обзор — и загораживали сами себя:
+   * луч видимости шёл до середины клетки, упирался в неё же и объявлял
+   * цель невидимой. Выбрать их было нельзя ни тапом, ни клавишей, хотя
+   * видно их прекрасно, и это ровно те вещи, ради которых прицел по
+   * предметам делался.
+   *
+   * Ошибка живёт только на непрозрачном: бочку было видно всегда, и на
+   * ней проверка ничего не находила.
+   */
+  const world = createWorld(TUTOR);
+  let hay = -1;
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === TILE.HAY) { hay = i; break; }
+  }
+  check('в парке есть стог для проверки', hay >= 0, `клетка ${hay}`);
+
+  const hx = ((hay % world.w) + 0.5) * TILE_SIZE;
+  const hy = (((hay / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  /* Игрок встаёт слева и в стороне: по прямой, но не вплотную. */
+  world.player.x = hx - TILE_SIZE * 5;
+  world.player.y = hy;
+
+  const list = lockCandidates(world, 0);
+  check('стог попадает в список целей',
+    list.some((target) => target.prop === hay), `целей ${list.length}`);
+
+  /* И тап рядом с ним выбирает именно его. */
+  const near = targetNear(world, hx, hy);
+  check('тап по стогу выбирает стог',
+    near && near.prop === hay,
+    near ? (near.prop === undefined ? 'живого' : `предмет ${near.prop}`) : 'ничего');
+
+  /* Далёкая цель тоже берётся руками: половина игры в том, чтобы ударить
+     издалека, и круг автонаведения тут не указ. */
+  world.player.x = hx - TILE_SIZE * 14;
+  world.viewRadius = 420;
+  const far = targetNear(world, hx, hy);
+  check('стог за четырнадцать клеток всё ещё выбирается',
+    far && far.prop === hay, far ? 'выбран' : 'потерян');
 }
 
 
