@@ -30,6 +30,21 @@ export function createInput(surface) {
 
   const mouse = { x: 0, y: 0, down: false, used: false, movedAt: -Infinity, moved: false };
 
+  /*
+   * Тап по полю — выбор цели.
+   *
+   * Пальцем нельзя нажать Tab, а выбирать, во что прилетит, нужно не
+   * меньше, чем с клавиатуры: половина игры в том, чтобы ударить в бочку,
+   * а не в того, кто рядом с ней. Тап — единственный жест, который на
+   * сенсоре свободен: короткое касание без ведения ничего больше не значит.
+   *
+   * Отличается он от стика двумя числами: не сдвинулся дальше пальца и
+   * отпущен быстрее, чем за треть секунды. Всё остальное — стик.
+   */
+  const TAP_SLIDE = 14;
+  const TAP_TIME = 320;
+  let tap = null;
+
   const sticks = {
     move: { id: null, baseX: 0, baseY: 0, dx: 0, dy: 0, active: false },
     aim: { id: null, baseX: 0, baseY: 0, dx: 0, dy: 0, active: false },
@@ -108,6 +123,9 @@ export function createInput(surface) {
       stick.dx = 0;
       stick.dy = 0;
       stick.active = true;
+      stick.startX = x;
+      stick.startY = y;
+      stick.startAt = performance.now();
     }
 
     event.preventDefault();
@@ -147,9 +165,19 @@ export function createInput(surface) {
   }, { passive: false });
 
   function endTouch(event) {
+    const rect = surface.getBoundingClientRect();
+
     for (const touch of event.changedTouches) {
       for (const stick of [sticks.move, sticks.aim]) {
         if (stick.id !== touch.identifier) continue;
+
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        const slid = Math.hypot(x - stick.startX, y - stick.startY);
+        const held = performance.now() - stick.startAt;
+
+        if (slid < TAP_SLIDE && held < TAP_TIME) tap = { x, y };
+
         stick.id = null;
         stick.dx = 0;
         stick.dy = 0;
@@ -252,6 +280,13 @@ export function createInput(surface) {
     return state;
   }
 
+  /* Тап читается один раз: он событие, а не состояние. */
+  function tookTap() {
+    const at = tap;
+    tap = null;
+    return at;
+  }
+
   function tookKey(code) {
     if (!pressed.has(code)) return false;
     pressed.delete(code);
@@ -260,5 +295,5 @@ export function createInput(surface) {
 
   function endFrame() { pressed.clear(); }
 
-  return { read, tookKey, endFrame, bindButton, keys, isTouch: () => touchMode };
+  return { read, tookKey, tookTap, endFrame, bindButton, keys, isTouch: () => touchMode };
 }

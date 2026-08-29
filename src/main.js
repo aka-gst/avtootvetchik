@@ -9,7 +9,7 @@
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
 import { createWorld, update } from './world.js';
-import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget, cycleTarget } from './aim.js';
+import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget, cycleTarget, targetNear } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -477,6 +477,22 @@ function buildIntent(raw) {
   /* Забираем все три нажатия, а не первое: иначе непрочитанное всплывёт кадром позже. */
   for (const code of Object.keys(CHARGE_KEYS)) {
     if (input.tookKey(code)) intent.charge = CHARGE_KEYS[code];
+  }
+
+  /*
+   * Тап по полю выбирает цель — то же, что Tab с клавиатуры, только пальцем
+   * и сразу в нужную, а не по кругу. Дальше прицел держится за неё сам, и
+   * можно спокойно бежать и набирать очередь: удар всё равно уйдёт туда.
+   */
+  const tapped = input.tookTap();
+  if (tapped) {
+    const at = renderer.toWorld(tapped.x, tapped.y, lastView);
+    const target = targetNear(world, at.x, at.y);
+    if (target) {
+      locked = target;
+      world.locked = target;
+      audio.sfx('spot');
+    }
   }
 
   if (raw.aimStick !== null) {

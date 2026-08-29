@@ -184,6 +184,28 @@ export function lockTarget(world, previous, facing) {
   return lockCandidates(world, facing)[0] || null;
 }
 
+/*
+ * Цель под пальцем. Тап по полю выбирает то, что ближе всего к точке
+ * касания, — живого или предмет, без разницы: половина игры в том, чтобы
+ * ударить в бочку, а не в того, кто рядом с ней.
+ *
+ * Радиус щедрый намеренно. Палец толще курсора, и требовать от него
+ * пиксельной точности значит требовать промахов.
+ */
+export function targetNear(world, x, y, reach = 90) {
+  let best = null;
+  let bestDist = reach;
+
+  for (const target of lockCandidates(world, 0)) {
+    const dist = Math.hypot(target.x - x, target.y - y);
+    if (dist >= bestDist) continue;
+    bestDist = dist;
+    best = target;
+  }
+
+  return best;
+}
+
 /* Следующая цель по кругу. Один и тот же список, тот же порядок — значит
    Tab всегда идёт в одну сторону, а не прыгает случайно. */
 export function cycleTarget(world, previous, facing) {

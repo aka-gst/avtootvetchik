@@ -426,378 +426,173 @@ html, body {
 /* =========================================================
    ТЕЛЕФОН
    =========================================================
-   Экран телефона вытянут, а этаж — широкий и низкий. Если
-   отдать холсту всю высоту, мир займёт треть, остальное
-   станет чёрным, а кнопки уедут к нижней кромке, куда палец
-   дотягивается хуже всего.
-   Поэтому холст занимает верхние две трети, а нижняя треть
-   отдана управлению целиком. Чёрных полей не остаётся, и
-   всё, что нажимают, лежит под большими пальцами.
+   Порядок важности задан игрой, а не вкусом: поле, кнопки
+   магии, книга, всё остальное. Поэтому поле забирает почти
+   весь экран, магия лежит сразу под ним, книга остаётся
+   различимой кнопкой, а звук и часы ужимаются до строчки.
    ========================================================= */
 
 @media (pointer: coarse) and (orientation: portrait) {
   #screen {
     inset: 0 0 auto 0;
-    height: 64%;
+    height: 74%;
   }
 
-  /* Кнопка выпуска — под правым большим пальцем, крупная и круглая:
-     по ней бьют не глядя, и промах стоит жизни. */
-  .pad {
-    top: auto;
-    right: max(14px, env(safe-area-inset-right));
-    bottom: max(18px, env(safe-area-inset-bottom));
-    display: grid;
-    transform: none;
-  }
-
-  .pad-big {
-    width: 128px;
-    height: 128px;
-    border-radius: 50%;
-    font: 900 18px var(--mono);
-  }
-
-  /* Стихии — ряд под холстом, во всю ширину и крупно. */
+  /* Стихии — сразу под полем, во всю ширину и первыми под пальцем. */
   .daemons {
     bottom: auto;
-    top: calc(64% + 14px);
-    gap: 6px;
-  }
-
-  .daemon-key {
-    width: 66px;
-    padding: 12px 4px 10px;
-  }
-
-  .daemon-key b { font-size: 15px; }
-  .daemon-key i { font-size: 9px; }
-
-  /*
-   * Клавиша на кнопке — подсказка для клавиатуры, и на телефоне она врёт:
-   * никакой стрелки влево там нет. Остаётся имя стихии и цвет.
-   */
-  .daemon-key b { display: none; }
-  .daemon-key i { font-size: 11px; }
-
-  /*
-   * Всё, что не поле и не кнопки, уходит вниз, в пустой левый угол полосы.
-   * Наверху экрана каждый пиксель — игровой, и закрывать его счётом
-   * недопустимо: именно там стоит игрок.
-   */
-  .hud {
-    top: auto;
-    bottom: max(18px, env(safe-area-inset-bottom));
-    left: max(12px, env(safe-area-inset-left));
-    right: auto;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    max-width: 55vw;
-    gap: 6px;
-  }
-
-  .hud-stack { display: none; }
-
-  .mute,
-  .mute-second,
-  .game-home-menu {
-    top: auto;
-    right: auto;
-    left: max(12px, env(safe-area-inset-left));
-    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 92px);
-  }
-
-  .mute-second { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 56px); }
-  .game-home-menu { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 128px); }
-
-
-  .toast { bottom: calc(36% + 14px); }
-  .found { top: 30%; }
-}
-
-/*
- * Телефон боком. Полоса снизу тут не нужна и вредна: высоты и так мало,
- * отдавать её под кнопки — значит смотреть на мир в щёлку. Поле занимает
- * весь экран, а управление ложится поверх, по углам, где и лежат большие
- * пальцы.
- */
-@media (pointer: coarse) and (orientation: landscape) {
-  .pad {
-    top: auto;
-    right: max(14px, env(safe-area-inset-right));
-    bottom: max(14px, env(safe-area-inset-bottom));
-    display: grid;
-    transform: none;
-  }
-
-  .pad-big {
-    width: 104px;
-    height: 104px;
-    border-radius: 50%;
-    font: 900 15px var(--mono);
-  }
-
-  /* Стихии — столбиком слева, подальше от того угла, где ведёт палец. */
-  .daemons {
-    left: max(14px, env(safe-area-inset-left));
-    bottom: max(14px, env(safe-area-inset-bottom));
-    flex-direction: column-reverse;
-    transform: none;
+    top: calc(74% + 8px);
     gap: 5px;
   }
 
   .daemon-key {
-    width: 92px;
-    padding: 7px 4px 6px;
-    background: #0a0f10cc;
+    width: 68px;
+    padding: 9px 3px 8px;
   }
 
   .daemon-key b { display: none; }
+  .daemon-key i { font-size: 10px; }
 
-  .toast { bottom: 22vh; }
+  /* Выпуск — под правым большим пальцем. По нему бьют не глядя. */
+  .pad {
+    top: auto;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: grid;
+    transform: none;
+  }
+
+  .pad-big {
+    width: 116px;
+    height: 116px;
+    border-radius: 50%;
+    font: 900 17px var(--mono);
+  }
+
+  /* Книга — третья по важности, значит остаётся кнопкой, а не строчкой. */
+  .mute-second {
+    top: auto;
+    left: max(12px, env(safe-area-inset-left));
+    right: auto;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 46px);
+    padding: 11px 18px;
+    font: 800 12px var(--mono);
+    border-color: var(--violet);
+    color: var(--paper);
+  }
+
+  /* Часы, счёт, звук и ссылка — последние. Строчкой, мелко. */
+  .hud {
+    top: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    right: auto;
+    justify-content: flex-start;
+    max-width: 58vw;
+    gap: 4px;
+  }
+
+  .hud-slot { padding: 3px 6px; }
+  .hud-slot b { font-size: 10px; }
+  .hud-label { font-size: 7px; }
+  .hud-stack { display: none; }
+
+  /* Кнопка книги тоже .mute, поэтому здесь она исключена явно: иначе это
+     правило садит её ровно на кнопку звука. */
+  .mute:not(.mute-second),
+  .game-home-menu {
+    top: auto;
+    right: auto;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 94px);
+    padding: 4px 7px;
+    font: 700 8px var(--mono);
+  }
+
+  .game-home-menu { left: calc(max(12px, env(safe-area-inset-left)) + 64px); }
+
+  .toast { bottom: calc(26% + 12px); }
+  .found { top: 32%; }
 }
 
+/*
+ * Телефон боком. Полосы снизу тут быть не может: высоты и так мало, и
+ * любая полка съедает половину поля. Всё лежит поверх, по углам, и всё
+ * прозрачное — под кнопками должно быть видно, что происходит.
+ */
+@media (pointer: coarse) and (orientation: landscape) {
+  .pad {
+    top: auto;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: grid;
+    transform: none;
+  }
 
-/* =========================================================
-   ЭКРАНЫ МЕЖДУ ПОПЫТКАМИ
-   ========================================================= */
+  .pad-big {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    font: 900 14px var(--mono);
+  }
 
-.veil {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: #05040ad9;
-  backdrop-filter: blur(6px);
-}
+  /* Стихии — рядом вдоль нижней кромки, левее кнопки выпуска. */
+  .daemons {
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    transform: none;
+    gap: 4px;
+  }
 
-.veil[hidden] { display: none; }
+  .daemon-key {
+    width: 60px;
+    padding: 7px 3px 6px;
+    background: #050b0cd0;
+  }
 
-.veil-card {
-  width: min(430px, 100%);
-  max-height: 92vh;
-  overflow: auto;
-  padding: 24px 22px 20px;
-  border: 2px solid var(--acid);
-  background: linear-gradient(150deg, #1a0b28, #0a1512);
-  box-shadow: 10px 10px 0 #05040a, 0 0 44px #76ff9f22;
-}
+  .daemon-key b { display: none; }
+  .daemon-key i { font-size: 9px; }
 
-.veil[data-tone="dead"] .veil-card { border-color: var(--pink); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ff2d9530; }
-.veil[data-tone="clear"] .veil-card { border-color: var(--amber); box-shadow: 10px 10px 0 #05040a, 0 0 44px #ffe06b30; }
-.veil[data-tone="pause"] .veil-card { border-color: var(--violet); box-shadow: 10px 10px 0 #05040a, 0 0 44px #bc70ff30; }
+  /* Книга — заметной кнопкой в правом верхнем углу, подальше от пальцев. */
+  .mute-second {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    left: auto;
+    bottom: auto;
+    padding: 9px 14px;
+    font: 800 11px var(--mono);
+    border-color: var(--violet);
+    color: var(--paper);
+    background: #050b0cd0;
+  }
 
-.veil-kicker {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--violet);
-  font: 800 9px var(--mono);
-  letter-spacing: .22em;
-}
+  /* Часы и счёт — мелкой строкой сверху слева, на своём месте. */
+  .hud {
+    top: max(8px, env(safe-area-inset-top));
+    bottom: auto;
+    gap: 4px;
+  }
 
-.veil h1 {
-  margin: 0 0 12px;
-  font: 900 30px/1 system-ui, -apple-system, sans-serif;
-  letter-spacing: .01em;
-  color: var(--acid);
-  text-transform: uppercase;
-}
+  .hud-slot { padding: 3px 6px; background: #050b0cd0; }
+  .hud-slot b { font-size: 10px; }
+  .hud-label { font-size: 7px; }
+  .hud-stack { display: none; }
 
-.veil[data-tone="dead"] h1 { color: var(--pink); }
-.veil[data-tone="clear"] h1 { color: var(--amber); }
-.veil[data-tone="pause"] h1 { color: var(--violet); }
+  .mute:not(.mute-second),
+  .game-home-menu {
+    top: calc(max(10px, env(safe-area-inset-top)) + 40px);
+    right: max(12px, env(safe-area-inset-right));
+    left: auto;
+    bottom: auto;
+    padding: 4px 7px;
+    font: 700 8px var(--mono);
+    background: #050b0cd0;
+  }
 
-.veil p {
-  margin: 0 0 16px;
-  color: #cbbbd6;
-  font-size: 12px;
-  line-height: 1.55;
-}
+  .game-home-menu { top: calc(max(10px, env(safe-area-inset-top)) + 68px); }
 
-.veil-stats span[data-warn="1"] {
-  color: var(--pink);
-}
-
-.veil-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-bottom: 18px;
-  color: #8a7c99;
-  font: 700 9px var(--mono);
-  letter-spacing: .14em;
-  line-height: 1.5;
-}
-
-.veil-score {
-  margin: 0 0 18px;
-  padding: 14px;
-  border: 1px solid #ffffff1c;
-  background: #06040c;
-}
-
-.veil-score[hidden] { display: none; }
-
-.veil-score .rank {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  margin-bottom: 12px;
-}
-
-.veil-score .rank b {
-  font: 900 46px/1 system-ui, -apple-system, sans-serif;
-  color: var(--amber);
-  text-shadow: 3px 3px 0 #05040a;
-}
-
-.veil-score .rank span {
-  color: #6f6280;
-  font: 800 9px var(--mono);
-  letter-spacing: .2em;
-}
-
-.veil-score[data-rank="S"] .rank b { color: var(--pink); }
-.veil-score[data-rank="A"] .rank b { color: var(--acid); }
-.veil-score[data-rank="D"] .rank b { color: #8a7c99; }
-
-.veil-score ul {
-  display: grid;
-  gap: 5px;
-  margin: 0 0 11px;
-  padding: 0;
-  list-style: none;
-}
-
-.veil-score li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: #a596b3;
-  font: 700 10px var(--mono);
-  letter-spacing: .08em;
-}
-
-.veil-score li b { color: var(--paper); font-weight: 800; }
-
-.score-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding-top: 9px;
-  border-top: 1px solid #ffffff1c;
-  color: #6f6280;
-  font: 800 9px var(--mono);
-  letter-spacing: .18em;
-}
-
-.score-total b {
-  color: var(--amber);
-  font: 900 22px/1 var(--mono);
-}
-
-.score-best {
-  margin: 9px 0 0;
-  color: #6f6280;
-  font: 700 9px var(--mono);
-  letter-spacing: .12em;
-}
-
-.score-best[data-record="1"] { color: var(--acid); }
-
-.veil-action, .veil-second {
-  width: 100%;
-  min-height: 48px;
-  border: 2px solid var(--acid);
-  background: #16412c;
-  color: #fff;
-  font: 800 12px var(--mono);
-  letter-spacing: .12em;
-  cursor: pointer;
-  box-shadow: 4px 4px 0 #05040a;
-}
-
-.veil-second {
-  margin-top: 9px;
-  border-color: #ffffff28;
-  background: transparent;
-  color: #a596b3;
-  box-shadow: none;
-}
-
-.veil-action:hover, .veil-second:hover { background: #1e5c3d; color: #fff; }
-
-.veil-code {
-  margin: 0 0 16px;
-  padding: 12px;
-  border: 1px dashed #ffffff22;
-  background: #06040c;
-}
-
-.veil-code label {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--violet);
-  font: 800 8px var(--mono);
-  letter-spacing: .18em;
-}
-
-.code-row { display: flex; gap: 6px; }
-
-.code-row #nickBox {
-  flex: 0 0 120px;
-  color: var(--acid);
-  text-transform: uppercase;
-}
-
-.code-row input {
-  flex: 1;
-  min-width: 0;
-  height: 38px;
-  padding: 0 9px;
-  border: 1px solid #ffffff22;
-  background: #0d0817;
-  color: var(--amber);
-  font: 600 11px var(--mono);
-  outline: none;
-}
-
-.code-row button {
-  padding: 0 12px;
-  border: 1px solid var(--violet);
-  background: #23113a;
-  color: var(--paper);
-  font: 800 9px var(--mono);
-  letter-spacing: .1em;
-  cursor: pointer;
-}
-
-.veil-code small {
-  display: block;
-  margin-top: 7px;
-  color: #6f6280;
-  font-size: 9px;
-  line-height: 1.5;
-}
-
-/* Узкий экран: показания уходят в столбик, иначе они не помещаются. */
-@media (max-width: 430px) {
-  .hud { flex-direction: column; }
-  .hud-slot { padding: 6px 9px; }
-  .hud-slot b { font-size: 11px; }
-}
-
-@media (max-height: 520px) {
-  .veil-card { padding: 16px; }
-  .veil h1 { font-size: 22px; }
-  .veil p { margin-bottom: 10px; }
-  .veil-stats span[data-warn="1"] {
-  color: var(--pink);
-}
-
-.veil-stats { margin-bottom: 12px; }
+  .toast { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 118px); }
+  .found { top: 34%; }
 }
 
 
