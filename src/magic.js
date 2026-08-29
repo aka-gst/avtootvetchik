@@ -309,22 +309,29 @@ export function substanceOf(stack) {
   return substance;
 }
 
-/* Все вещества разом — для книги заклинаний и для прогонов. */
+/*
+ * Все вещества разом — для книги заклинаний и для прогонов. Порядок: сперва
+ * чистые, потом пары, потом тройки. Не ради красоты: в книге это ряд
+ * коротких составов над рядами длинных, и по ней сразу видно, где ты уже
+ * всё нашёл, а где начинается неизведанное.
+ */
 export function allSubstances() {
-  const out = [];
   const order = ELEMENT_ORDER;
+  const pure = [];
+  const pairs = [];
+  const triples = [];
 
   for (let a = 0; a < order.length; a += 1) {
-    out.push(substanceOf([order[a]]));
+    pure.push(substanceOf([order[a]]));
     for (let b = a + 1; b < order.length; b += 1) {
-      out.push(substanceOf([order[a], order[b]]));
+      pairs.push(substanceOf([order[a], order[b]]));
       for (let c = b + 1; c < order.length; c += 1) {
-        out.push(substanceOf([order[a], order[b], order[c]]));
+        triples.push(substanceOf([order[a], order[b], order[c]]));
       }
     }
   }
 
-  return out;
+  return [...pure, ...pairs, ...triples];
 }
 
 
@@ -353,6 +360,75 @@ function tune(form, traits) {
   return tuned;
 }
 
+/* =========================================================
+   СИГНАТУРЫ: то, что ищут
+   =========================================================
+   Именные заклинания. Не третья ось и не исключение из двух
+   первых: сигнатура — это конкретная пара «вещество · форма»,
+   у которой есть своё имя и своя добавка. С рук игрока она
+   набирается как точная последовательность — огонь-земля-огонь
+   даёт БОРОЗДУ, а огонь-огонь-земля уже нет, потому что это
+   другая форма.
+
+   Ключ — пара, а не сама последовательность: одну и ту же пару
+   даёт несколько порядков (земля-огонь-огонь и огонь-огонь-земля
+   оба дают залп лавы), и требовать от игрока угадать, какой из
+   двух «настоящий», было бы издевательством.
+
+   Добавки объявляются флагами, а не кодом: мир умеет пять вещей —
+   стелить след по всему пути, тянуть, толкать, бить разрядом вдоль
+   луча и класть вещество там, где чистая стихия его не кладёт.
+   Одиннадцатая сигнатура не потребует править мир, если обойдётся
+   этими пятью.
+   ========================================================= */
+
+export const SIGNATURES = {
+  'fire+earth|pierce': {
+    id: 'furrow', name: 'БОРОЗДА', trail: true,
+    note: 'лава ложится по всему пути, а не там, где встала',
+  },
+  'water+wind|pierce': {
+    id: 'icebound', name: 'ЛЕДОСТАВ', trail: true,
+    note: 'ледяная полоса через всю комнату',
+  },
+  'wind+earth|pierce': {
+    id: 'sandblast', name: 'ПЕСКОСТРУЙ', trail: true,
+    note: 'сносит мебель и стекло на всей линии',
+  },
+  'earth+bolt|cone': {
+    id: 'grip', name: 'ХВАТКА', pull: 900,
+    note: 'стягивает всех перед собой в кучу',
+  },
+  'wind+bolt|cone': {
+    id: 'repel', name: 'ОТБОЙ', push: 1000,
+    note: 'сдувает всех перед собой',
+  },
+  'bolt|beam': {
+    id: 'arrester', name: 'РАЗРЯДНИК', chainAlong: true,
+    note: 'бьёт по воде из каждой точки луча',
+  },
+  'water|beam': {
+    id: 'channel', name: 'РУСЛО', paintBeam: true,
+    note: 'чистая вода стелет русло — заготовка под молнию',
+  },
+  'fire|beam': {
+    id: 'burnline', name: 'ПАЛ', paintBeam: true,
+    note: 'чистый огонь оставляет за собой пожар',
+  },
+  'water+wind+bolt|nova': {
+    id: 'storm', name: 'ШТОРМ', push: 780,
+    note: 'мочит, бьёт и расшвыривает разом',
+  },
+  'fire+water+wind|nova': {
+    id: 'veil', name: 'ЗАВЕСА', bigCloud: 2.6,
+    note: 'пар на полкомнаты: этаж перестаёт тебя видеть',
+  },
+};
+
+export function signatureKey(substance, form) {
+  return `${substance.id}|${form.id}`;
+}
+
 /*
  * Всё, что нужно миру для выстрела. Возвращается и вещество целиком:
  * дальше по нему решают, что останется на полу и кого это возьмёт.
@@ -362,13 +438,15 @@ export function spellOf(stack) {
   if (!form) return null;
 
   const substance = substanceOf(stack);
+  const signature = SIGNATURES[signatureKey(substance, form)] || null;
 
   return {
     form: tune(form, substance.traits),
     base: form,
     substance,
+    signature,
     elements: substance.elements,
-    name: `${substance.name} · ${form.name}`,
+    name: signature ? signature.name : `${substance.name} · ${form.name}`,
   };
 }
 

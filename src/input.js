@@ -42,6 +42,15 @@ export function createInput(surface) {
   /* ======================= КЛАВИАТУРА ======================= */
 
   window.addEventListener('keydown', (event) => {
+    /*
+     * Пока курсор в поле ввода, клавиши принадлежат полю. Без этой
+     * оговорки ник «Борис» открывал книгу на «Б», а «Рома» перезапускал
+     * этаж на «Р»: игра слушала клавиатуру поверх формы.
+     */
+    const target = event.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
+      || target.isContentEditable)) return;
+
     /* Код клавиши, а не символ: на русской раскладке WASD остаётся WASD. */
     if (!event.repeat) pressed.add(event.code);
     keys.add(event.code);

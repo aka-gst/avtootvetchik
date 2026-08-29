@@ -109,7 +109,15 @@ export function burningAt(world, x, y) {
  */
 function groundFor(substance) {
   if (substance.pure) return GROUND.NONE;
+  return groundForced(substance);
+}
 
+/*
+ * То же самое, но без запрета на чистую стихию. Сюда ходят только
+ * сигнатуры: найденное заклинание имеет право быть исключением из
+ * общего правила — на том и держится смысл искать.
+ */
+function groundForced(substance) {
   const t = substance.traits;
   if (t.freeze) return GROUND.ICE;
   if (t.mire) return GROUND.MUD;
@@ -152,8 +160,8 @@ function meet(was, laid, substance) {
  * Нанести вещество на клетки. Вызывающий даёт список клеток — круг,
  * конус или линию он посчитал сам, потому что форму он и так знает.
  */
-export function paint(world, tiles, substance, at = null) {
-  const laid = groundFor(substance);
+export function paint(world, tiles, substance, at = null, force = false) {
+  const laid = force ? groundForced(substance) : groundFor(substance);
   const t = substance.traits;
 
   /*

@@ -61,6 +61,7 @@
 </header>
 
 <button type="button" id="mute" class="mute" data-off="0">ЗВУК ВКЛ</button>
+<button type="button" id="tomeOpen" class="mute mute-second">КНИГА · B</button>
 
 <div id="toast" class="toast" hidden></div>
 
@@ -128,6 +129,30 @@
 
   </div>
 
+</section>
+
+
+<!-- Книга заклинаний. Отдельным слоем поверх всего: её открывают и
+     посреди боя (игра встаёт на паузу), и с экрана между попытками. -->
+<section id="tome" class="tome" hidden>
+  <div class="tome-card">
+
+    <header class="tome-head">
+      <span class="veil-kicker">КНИГА</span>
+      <b id="tomeCount"></b>
+      <button type="button" id="tomeClose" class="tome-close">ЗАКРЫТЬ</button>
+    </header>
+
+    <p class="tome-hint">
+      Состав решает вещество, порядок — форму. Что выпустил хоть раз, то и записано.
+    </p>
+
+    <div id="tomeSubstances" class="tome-grid"></div>
+
+    <h3 class="tome-title">ИМЕННЫЕ</h3>
+    <ul id="tomeSignatures" class="tome-list"></ul>
+
+  </div>
 </section>
 
 

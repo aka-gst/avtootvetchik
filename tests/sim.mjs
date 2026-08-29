@@ -633,6 +633,85 @@ function cast(world, stack, angle) {
 }
 
 
+/* --- H. Сигнатуры: найденное заклинание обязано делать обещанное --- */
+{
+  /*
+   * Пустой зал внизу этажа: враги мешали бы мерить след. Игрок отодвинут
+   * от нижней стены — иначе нижний снаряд веера бьётся в неё через две
+   * клетки, и замер меряет не форму, а близость стены.
+   */
+  function clean() {
+    const world = createWorld(CAMPAIGN[0]);
+    for (const enemy of world.enemies) enemy.alive = false;
+    world.player.y -= TILE_SIZE * 2;
+    return world;
+  }
+
+  function groundCount(world, type, from, to) {
+    let count = 0;
+    for (let i = 0; i < world.ground.length; i += 1) {
+      if (world.ground[i] !== type) continue;
+      const x = ((i % world.w) + 0.5) * TILE_SIZE;
+      const y = ((i / world.w | 0) + 0.5) * TILE_SIZE;
+      const d = Math.hypot(x - world.player.x, y - world.player.y);
+      if (d >= from && d <= to) count += 1;
+    }
+    return count;
+  }
+
+  /* БОРОЗДА: лава по всему пути, а не только там, где снаряд встал. */
+  const furrow = clean();
+  cast(furrow, ['fire', 'earth', 'fire'], 0);
+  run(furrow, 0.3);
+  check('борозда стелет след по всему пути',
+    groundCount(furrow, GROUND.FIRE, TILE_SIZE * 2, TILE_SIZE * 6) > 3,
+    `${groundCount(furrow, GROUND.FIRE, 0, TILE_SIZE * 9)} клеток`);
+
+  /*
+   * И не под ногами. Награда за находку не имеет права быть ловушкой:
+   * первая версия поджигала пол там же, где стоял нашедший.
+   */
+  check('но не под ногами у того, кто её нашёл',
+    groundCount(furrow, GROUND.FIRE, 0, TILE_SIZE) === 0);
+
+  const fan = clean();
+  cast(fan, ['fire', 'fire', 'earth'], 0);
+  run(fan, 0.3);
+  check('та же лава без сигнатуры следа не оставляет',
+    groundCount(fan, GROUND.FIRE, TILE_SIZE * 2, TILE_SIZE * 3.5) === 0,
+    `${groundCount(fan, GROUND.FIRE, 0, TILE_SIZE * 9)} клеток`);
+
+  /* РУСЛО: чистая вода кладёт то, что чистой стихии не положено. */
+  const channel = clean();
+  cast(channel, ['water', 'water', 'water'], 0);
+  run(channel, 0.4);
+  check('русло стелет воду, хотя чистая стихия своего не оставляет',
+    groundCount(channel, GROUND.WATER, 0, TILE_SIZE * 12) > 4,
+    `${groundCount(channel, GROUND.WATER, 0, TILE_SIZE * 12)} клеток`);
+
+  const plain = clean();
+  cast(plain, ['water'], 0);
+  run(plain, 0.4);
+  check('а плевок той же водой — не оставляет',
+    groundCount(plain, GROUND.WATER, 0, TILE_SIZE * 12) === 0);
+
+  /* ХВАТКА: тянет тех, до кого сам выдох не достаёт. */
+  const grip = createWorld(CAMPAIGN[0]);
+  const far = grip.enemies[0];
+  for (const enemy of grip.enemies.slice(1)) enemy.alive = false;
+  far.state = 'idle';
+  far.resist = null;
+  far.x = grip.player.x + TILE_SIZE * 9;
+  far.y = grip.player.y;
+  const before = far.x - grip.player.x;
+  cast(grip, ['earth', 'bolt'], 0);
+  run(grip, 0.25);
+  check('хватка тянет тех, до кого выдох не достаёт',
+    far.alive && far.x - grip.player.x < before - 70,
+    `${Math.round(before)} → ${Math.round(far.x - grip.player.x)}`);
+}
+
+
 console.log(report.join('\n'));
 console.log(failures ? `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}` : '\nвсе проверки прошли');
 process.exit(failures ? 1 : 0);

@@ -601,7 +601,11 @@ function castForm(world, spell) {
   world.fx.shake = Math.max(world.fx.shake, form.kind === 'nova' ? 9 : 4.5);
   world.fx.punch = 1;
   world.events.push({
-    type: 'daemon', form: form.id, elements: spell.elements, substance: substance.id,
+    type: 'daemon',
+    form: form.id,
+    elements: spell.elements,
+    substance: substance.id,
+    signature: spell.signature ? spell.signature.id : null,
   });
 
   if (form.kind === 'shot') {
@@ -630,8 +634,11 @@ function spawnDaemon(world, angle, spell) {
     vy: Math.sin(angle) * form.speed,
     from: 'player',
     weapon: 'daemon',
+    ox: player.x,
+    oy: player.y,
     elements: spell.elements,
     substance,
+    trail: Boolean(spell.signature && spell.signature.trail),
     pierce: form.pierce || 0,
     breaks: Boolean(form.breaks),
     colour: substance.colour,
@@ -667,6 +674,8 @@ function castCone(world, spell, angle) {
     y: player.y + Math.sin(angle) * form.reach * 0.6,
     r: form.reach * 0.55,
   });
+
+  applySignature(world, spell, { x: player.x, y: player.y });
 }
 
 function castBeam(world, spell, angle) {
@@ -712,14 +721,28 @@ function castBeam(world, spell, angle) {
   /* Полоса начинается на шаг вперёд: луч огня, кладущий пожар себе под
      ноги, наказывал бы за самую очевидную очередь из трёх одинаковых. */
   const from = 26;
+  const sign = spell.signature;
+
   if (distance > from) {
     land(world,
       tilesAlongLine(world,
         player.x + Math.cos(angle) * from, player.y + Math.sin(angle) * from,
         player.x + Math.cos(angle) * distance, player.y + Math.sin(angle) * distance),
       substance,
-      { x: player.x + Math.cos(angle) * distance, y: player.y + Math.sin(angle) * distance });
+      { x: player.x + Math.cos(angle) * distance, y: player.y + Math.sin(angle) * distance },
+      Boolean(sign && sign.paintBeam));
   }
+
+  /* РАЗРЯДНИК бьёт не в конце линии, а с каждого её шага: луч, идущий
+     над лужей, поднимает всю лужу разом. */
+  if (sign && sign.chainAlong) {
+    for (let along = from; along < distance; along += TILE_SIZE) {
+      discharge(world, player.x + Math.cos(angle) * along, player.y + Math.sin(angle) * along,
+        substance);
+    }
+  }
+
+  applySignature(world, spell, { x: player.x, y: player.y });
 }
 
 /*
@@ -751,6 +774,8 @@ function castNova(world, spell) {
 
   land(world, tilesInCircle(world, player.x, player.y, form.radius), substance,
     { x: player.x, y: player.y, r: form.radius * 0.8 });
+
+  applySignature(world, spell, { x: player.x, y: player.y });
 
   /*
    * Отражение считается по соседним клеткам, а не лучами: восемь соседей
@@ -797,9 +822,52 @@ function castNova(world, spell) {
  * потому что только она знает, где закончилась: снаряд — где упал, выдох —
  * по всему конусу, луч — вдоль линии.
  */
-function land(world, tiles, substance, at) {
-  paint(world, tiles, substance, at);
+function land(world, tiles, substance, at, force = false) {
+  paint(world, tiles, substance, at, force);
   if (substance.traits.shock && at) discharge(world, at.x, at.y, substance);
+}
+
+/*
+ * Толчок сигнатуры. Тела двигает через ту же оглушку, что и сорванный
+ * щит: у неё уже есть и трение, и проверка стен, а второй способ двигать
+ * тело означал бы второй способ пройти сквозь стену.
+ *
+ * Игрока толчок не трогает: он тут центр, а не цель. Своя же ХВАТКА,
+ * стягивающая самого себя, читалась бы как поломка, а не как цена.
+ */
+function impulse(world, x, y, radius, strength) {
+  for (const enemy of world.enemies) {
+    if (!enemy.alive) continue;
+    const dx = enemy.x - x;
+    const dy = enemy.y - y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > radius || dist < 1) continue;
+    if (!hasSight(world, x, y, enemy.x, enemy.y)) continue;
+
+    /* Ближних кидает сильнее — иначе дальний край работает так же, как
+       вплотную, и у заклинания пропадает форма. */
+    const fall = 1 - dist / radius;
+    const push = (strength * (0.45 + fall * 0.55)) / dist;
+    enemy.vx = dx * push;
+    enemy.vy = dy * push;
+    enemy.stagger = Math.max(enemy.stagger || 0, 0.35);
+    enemy.shove = 0.35;
+  }
+}
+
+/* Сигнатура — набор флагов; здесь они превращаются в действие. */
+function applySignature(world, spell, at) {
+  const sign = spell.signature;
+  if (!sign) return;
+
+  const player = world.player;
+  const reach = spell.form.reach || spell.form.radius || 140;
+
+  if (sign.pull) impulse(world, player.x, player.y, reach * 3, -sign.pull);
+  if (sign.push) impulse(world, player.x, player.y, reach * 2.6, sign.push);
+  if (sign.bigCloud) {
+    addCloud(world, player.x, player.y, reach * sign.bigCloud, 'steam');
+  }
 }
 
 /*
@@ -1066,8 +1134,18 @@ function updateEnemy(world, enemy, dt) {
   /* Сорванный щит выключает носителя на треть секунды — окно для добивания. */
   if (enemy.stagger > 0) {
     enemy.stagger -= dt;
-    enemy.vx *= 0.82;
-    enemy.vy *= 0.82;
+
+    /*
+     * Отброшенное тело тормозит медленнее оглушённого. Разница поймана
+     * прогоном: на общем торможении ХВАТКА сдвигала врага на два десятка
+     * пикселей — меньше собственного роста, — и найденное заклинание не
+     * делало ничего заметного. Толчок обязан быть виден, иначе его незачем
+     * искать.
+     */
+    const drag = (enemy.shove || 0) > 0 ? 0.93 : 0.82;
+    enemy.shove = Math.max(0, (enemy.shove || 0) - dt);
+    enemy.vx *= drag;
+    enemy.vy *= drag;
     moveBody(world, enemy, enemy.vx * dt, enemy.vy * dt);
     return;
   }
@@ -1127,6 +1205,18 @@ function updateBullets(world, dt) {
     for (let i = 0; i < steps && bullet.life > 0; i += 1) {
       bullet.x += sx;
       bullet.y += sy;
+
+      /*
+       * Сигнатура следа: вещество ложится на каждом шагу полёта, а не
+       * только там, где снаряд встал. Первые полторы клетки пропускаются —
+       * иначе БОРОЗДА поджигает пол ровно под ногами того, кто её нашёл, и
+       * награда за находку оказывается смертельной ловушкой.
+       */
+      if (bullet.trail && bullet.substance
+        && Math.hypot(bullet.x - bullet.ox, bullet.y - bullet.oy) > TILE_SIZE * 1.5) {
+        paint(world, tilesInCircle(world, bullet.x, bullet.y, TILE_SIZE * 0.6),
+          bullet.substance, null);
+      }
 
       const tile = tileAt(world, bullet.x, bullet.y);
 

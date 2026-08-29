@@ -16,6 +16,7 @@ import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
+import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -54,7 +55,20 @@ const ui = {
   mute: $('mute'),
   ghostMove: $('ghostMove'),
   ghostAim: $('ghostAim'),
+  tome: $('tome'),
+  tomeCount: $('tomeCount'),
+  tomeSubstances: $('tomeSubstances'),
+  tomeSignatures: $('tomeSignatures'),
+  tomeClose: $('tomeClose'),
+  tomeOpen: $('tomeOpen'),
 };
+
+/*
+ * Книга живёт рядом с игрой, а не внутри мира: мир не знает, что игрок
+ * уже видел, и знать не должен — иначе один и тот же этаж вёл бы себя
+ * по-разному у двух людей и перестал бы быть тем же этажом.
+ */
+const book = loadBook();
 
 /*
  * Стихии набираются правой рукой: четыре на стрелках, пятая — на слэше
@@ -111,6 +125,7 @@ let scene = 'call';          /* call → play → dead | clear, плюс pause *
 let view = { x: 0, y: 0 };
 let lastView = { zoom: 1, camX: 0, camY: 0 };
 let toastTimer = 0;
+let tomeVisible = false;
 let deathHold = 0;
 let attempts = 0;
 
@@ -427,6 +442,80 @@ function buildIntent(raw) {
 }
 
 /* =========================================================
+   КНИГА
+   ========================================================= */
+
+function renderTome() {
+  const pages = bookPages(book);
+  const count = bookCount(book);
+
+  ui.tomeCount.textContent =
+    `${count.substances}/${count.substancesTotal} · ИМЕННЫХ ${count.signatures}/${count.signaturesTotal}`;
+
+  ui.tomeSubstances.innerHTML = pages.substances.map((entry) => {
+    const marks = elementMarks(entry.elements)
+      .map((element) => `<i style="background:${entry.known ? element.colour : '#4a4358'}"></i>`)
+      .join('');
+
+    /* Неоткрытое показывает размер состава: это и есть подсказка, где
+       искать, — и единственная, какую книга даёт. */
+    const name = entry.known
+      ? `<b class="tome-name" style="color:${entry.colour}">${entry.name}</b>`
+      : `<b class="tome-name">${'?'.repeat(entry.size + 2)}</b>`;
+    const note = entry.known && entry.note
+      ? `<span class="tome-note">${entry.note}</span>`
+      : '';
+
+    return `<div class="tome-cell" data-known="${entry.known ? 1 : 0}">`
+      + `<span class="tome-marks">${marks}</span>${name}${note}</div>`;
+  }).join('');
+
+  /*
+   * Заклинание попадает в список, как только известно его вещество: игрок
+   * должен видеть, что в ЛАВЕ что-то есть, и искать порядок, а не гадать,
+   * существует ли то, что он ищет. Остальные сворачиваются в одну строку —
+   * десять одинаковых «???» подряд не сообщают ничего, кроме длины списка.
+   */
+  const shown = pages.signatures.filter((entry) => entry.known || entry.hinted);
+  const rest = pages.signatures.length - shown.length;
+
+  ui.tomeSignatures.innerHTML = shown.map((entry) => {
+    if (entry.known) {
+      return `<li data-known="1" style="border-left-color:${entry.colour}">`
+        + `<b class="tome-sign" style="color:${entry.colour}">${entry.name}</b> `
+        + `<span class="tome-recipe">${entry.substance} · ${entry.form}</span>`
+        + `<br><span class="tome-note">${entry.note}</span></li>`;
+    }
+
+    return `<li data-known="0" style="border-left-color:${entry.colour}">`
+      + `<b class="tome-sign">???</b> `
+      + `<span class="tome-recipe">${entry.substance} · ${entry.form}</span>`
+      + `<br><span class="tome-note">${entry.formHint}</span></li>`;
+  }).join('')
+    + (rest
+      ? `<li data-known="0"><span class="tome-note">`
+        + `ещё ${rest} — их вещества пока не открыты</span></li>`
+      : '');
+}
+
+function showTome() {
+  renderTome();
+  ui.tome.hidden = false;
+  tomeVisible = true;
+}
+
+function hideTome() {
+  ui.tome.hidden = true;
+  tomeVisible = false;
+}
+
+function toggleTome() {
+  if (tomeVisible) hideTome();
+  else showTome();
+}
+
+
+/* =========================================================
    HUD
    ========================================================= */
 
@@ -519,6 +608,21 @@ function drainEvents() {
     if (event.type === 'daemon') {
       audio.sfx(event.form === 'beam' ? 'beam' : event.form === 'nova' ? 'nova' : 'zap', event);
       if (event.form === 'nova') vibrate(30);
+
+      /*
+       * Находка объявляется один раз — в тот момент, когда случилась.
+       * Именное заклинание перебивает вещество: если игрок сразу попал в
+       * сигнатуру, важнее сказать про неё.
+       */
+      const found = noteSpell(book, event);
+      if (found.signature) {
+        setToast(`НАЙДЕНО ЗАКЛИНАНИЕ: ${found.signature.name}`, 2.6);
+        audio.sfx('spot');
+        vibrate([20, 40, 20]);
+      } else if (found.substance) {
+        setToast(`НОВОЕ ВЕЩЕСТВО: ${found.substance.name}`, 2);
+        audio.sfx('pickup');
+      }
     } else if (event.type === 'backfire') {
       setToast('ВСПЫШКА В ТЕСНОТЕ — СВОИМ ЖЕ', 2.4);
     } else if (event.type === 'resist') {
@@ -570,14 +674,17 @@ function frame(now) {
 
   const raw = input.read();
 
+  if (input.tookKey('KeyB')) toggleTome();
+
   if (input.tookKey('Escape') || input.tookKey('KeyP')) {
-    if (scene === 'play') pauseScreen();
+    if (tomeVisible) hideTome();
+    else if (scene === 'play') pauseScreen();
     else if (scene === 'pause') { hideVeil(); scene = 'play'; }
   }
 
   if (input.tookKey('KeyM')) toggleMute();
 
-  if (scene === 'play') {
+  if (scene === 'play' && !tomeVisible) {
     const intent = buildIntent(raw);
     update(world, dt, intent);
     score.feed(world.events);
@@ -598,8 +705,8 @@ function frame(now) {
     drainEvents();
     deathHold -= dt;
     if (deathHold <= 0) deathScreen();
-  } else if (world && scene !== 'call') {
-    /* На паузе и после смерти мир не двигается, но кадр всё равно рисуем. */
+  } else if (world && (scene !== 'call' || tomeVisible)) {
+    /* На паузе, в книге и после смерти мир не двигается, но кадр рисуем. */
     update(world, 0, { moveX: 0, moveY: 0, aimAngle: null, attack: false });
   }
 
@@ -748,6 +855,13 @@ $('copyCode').addEventListener('click', async () => {
     document.execCommand('copy');
   }
 });
+
+ui.tomeOpen.addEventListener('click', () => { toggleTome(); ui.tomeOpen.blur(); });
+ui.tomeClose.addEventListener('click', hideTome);
+
+/* Щелчок мимо карточки закрывает книгу: она перекрывает игру целиком, и
+   искать кнопку в такой ситуации не должно быть обязательным. */
+ui.tome.addEventListener('click', (event) => { if (event.target === ui.tome) hideTome(); });
 
 ui.mute.addEventListener('click', () => {
   audio.unlock();

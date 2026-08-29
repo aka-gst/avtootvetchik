@@ -313,6 +313,9 @@ html, body {
 
 .mute[data-off="1"] { color: var(--pink); border-color: #ff2d9555; }
 
+/* Вторая кнопка того же ряда: книга стоит под звуком, а не в углу карты. */
+.mute-second { top: calc(max(10px, env(safe-area-inset-top)) + 74px); }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -660,4 +663,141 @@ html, body {
 }
 
 .veil-stats { margin-bottom: 12px; }
+}
+
+
+/* =========================================================
+   КНИГА ЗАКЛИНАНИЙ
+   =========================================================
+   Сетка из клеток, а не список: двадцать пять веществ должны
+   читаться одним взглядом как заполненная наполовину доска —
+   именно вид пустых клеток и заставляет их закрывать.
+   ========================================================= */
+
+.tome {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: #05040ae6;
+  backdrop-filter: blur(6px);
+}
+
+.tome[hidden] { display: none; }
+
+.tome-card {
+  width: min(560px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 20px 20px 18px;
+  border: 2px solid var(--violet);
+  background: linear-gradient(150deg, #170c26, #0a1018);
+  box-shadow: 10px 10px 0 #05040a, 0 0 44px #bc70ff2e;
+}
+
+.tome-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tome-head .veil-kicker { margin: 0; }
+.tome-head b { color: var(--amber); font: 800 12px var(--mono); }
+
+.tome-close {
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--violet);
+  background: none;
+  color: var(--paper);
+  font: 700 9px var(--mono);
+  letter-spacing: .14em;
+  cursor: pointer;
+}
+
+.tome-close:hover { background: #bc70ff22; }
+
+.tome-hint {
+  margin: 0 0 14px;
+  color: #9a8fae;
+  font: 600 10px/1.5 var(--mono);
+}
+
+.tome-title {
+  margin: 18px 0 8px;
+  color: var(--violet);
+  font: 800 9px var(--mono);
+  letter-spacing: .22em;
+}
+
+.tome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+}
+
+.tome-cell {
+  padding: 7px 8px;
+  border: 1px solid #ffffff18;
+  background: #ffffff08;
+  min-height: 52px;
+}
+
+/* Неоткрытая клетка показывает форму пустоты — сколько стихий в составе.
+   Пустая клетка не зовёт, «состав из трёх» зовёт. */
+.tome-cell[data-known="0"] { opacity: .42; }
+.tome-cell[data-known="0"] .tome-name { color: #6b6280; }
+
+.tome-marks {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.tome-marks i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.tome-name {
+  display: block;
+  font: 800 11px/1.2 var(--mono);
+  letter-spacing: .04em;
+}
+
+.tome-note {
+  display: block;
+  margin-top: 3px;
+  color: #9a8fae;
+  font: 600 8px/1.35 var(--mono);
+}
+
+.tome-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+
+.tome-list li {
+  padding: 7px 9px;
+  border-left: 3px solid #ffffff20;
+  background: #ffffff08;
+}
+
+.tome-list li[data-known="0"] { opacity: .5; }
+
+.tome-sign {
+  font: 800 11px var(--mono);
+  letter-spacing: .05em;
+}
+
+.tome-recipe {
+  color: #9a8fae;
+  font: 600 9px var(--mono);
 }
