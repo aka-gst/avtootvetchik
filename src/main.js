@@ -17,7 +17,6 @@ import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
-import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -297,13 +296,7 @@ function syncElementButtons() {
     const element = ELEMENTS[id];
     const open = given.includes(id);
 
-    /*
-      * Значок стихии — маской по цвету кнопки: цвет один и живёт в CSS,
-      * а не в двух местах. Если картинка не приехала, маска просто ничего
-      * не покажет, и кнопка останется тем, чем была, — клавишей с именем.
-      */
-     button.innerHTML = `<span class="key-icon" style="--icon:url(art/icon-${id}.png)"></span>`
-       + `<b>${element.key}</b><i>${element.name}</i>`;
+    button.innerHTML = `<b>${element.key}</b><i>${element.name}</i>`;
     button.style.color = open ? element.colour : '#8fa39b';
     button.dataset.locked = open ? '0' : '1';
     button.disabled = !open;
@@ -1060,8 +1053,6 @@ window.avto = {
 
 const fromHash = levelFromHash();
 if (fromHash) { level = fromHash; custom = true; }
-
-loadArt();
 
 resize();
 levelCode = encode(level);

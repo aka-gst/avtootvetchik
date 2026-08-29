@@ -22,7 +22,6 @@ import { TILE, TILE_SIZE, weakTo } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
-import { art, tinted, drawFrame } from './art.js';
 
 const HALF = TILE_SIZE / 2;
 
@@ -146,34 +145,18 @@ export function createRenderer(canvas) {
         /* Дорожка отличается от газона не яркостью, а холодом: по ней
            видно, где ходят, и куда комната сама ведёт игрока. */
         const walkway = tile === TILE.DOOR || tile === TILE.EXIT;
+        floorCtx.fillStyle = walkway
+          ? (odd ? theme.path : theme.pathAlt)
+          : (odd ? theme.ground : theme.groundAlt);
+        floorCtx.fillRect(px, py, TILE_SIZE - 1, TILE_SIZE - 1);
 
-        /*
-         * Вариант плитки берётся от координат, а не от случая: пол обязан
-         * выглядеть одинаково при каждом заходе, иначе выученная комната
-         * перестаёт быть выученной. Три травы и две дорожки — чтобы не
-         * читалось шахматной доской.
-         */
-        const family = tile === TILE.RUG ? 'floor-data'
-          : walkway ? 'floor-path' : 'floor-grass';
-        const count = tile === TILE.RUG ? 2 : walkway ? 2 : 3;
-        const plate = art(`${family}-${((tx * 5 + ty * 11) % count) + 1}`);
-
-        if (plate) {
-          floorCtx.drawImage(plate, px, py, TILE_SIZE, TILE_SIZE);
-        } else {
-          floorCtx.fillStyle = walkway
-            ? (odd ? theme.path : theme.pathAlt)
-            : (odd ? theme.ground : theme.groundAlt);
-          floorCtx.fillRect(px, py, TILE_SIZE - 1, TILE_SIZE - 1);
-
-          if (tile === TILE.RUG) {
-            floorCtx.fillStyle = theme.rug;
-            floorCtx.fillRect(px + 1, py + 1, TILE_SIZE - 3, TILE_SIZE - 3);
-            floorCtx.strokeStyle = theme.rugEdge;
-            floorCtx.globalAlpha = 0.28;
-            floorCtx.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 8, TILE_SIZE - 8);
-            floorCtx.globalAlpha = 1;
-          }
+        if (tile === TILE.RUG) {
+          floorCtx.fillStyle = theme.rug;
+          floorCtx.fillRect(px + 1, py + 1, TILE_SIZE - 3, TILE_SIZE - 3);
+          floorCtx.strokeStyle = theme.rugEdge;
+          floorCtx.globalAlpha = 0.28;
+          floorCtx.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 8, TILE_SIZE - 8);
+          floorCtx.globalAlpha = 1;
         }
       }
     }
@@ -187,9 +170,7 @@ export function createRenderer(canvas) {
         const cy = ty * TILE_SIZE + HALF;
         const r = TILE_SIZE * 2.8;
         const glow = floorCtx.createRadialGradient(cx, cy, 2, cx, cy, r);
-        /* Пятно фонаря слабее, чем было: у плитки появился собственный
-           рисунок, и прежняя заливка съедала его в белёсую дымку. */
-        glow.addColorStop(0, hexToRgba(theme.wallEdge, 0.09));
+        glow.addColorStop(0, hexToRgba(theme.wallEdge, 0.2));
         glow.addColorStop(1, hexToRgba(theme.wallEdge, 0));
         floorCtx.save();
         floorCtx.globalCompositeOperation = 'lighter';
@@ -267,15 +248,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  /* Какому предмету какая картинка. Всё, чего тут нет, рисуется фигурами. */
-  const PROP_SPRITES = {
-    [TILE.TABLE]: 'prop-bench',
-    [TILE.BARREL]: 'prop-barrel',
-    [TILE.BOULDER]: 'prop-boulder',
-    [TILE.CRYSTAL]: 'prop-crystal',
-    [TILE.HAY]: 'prop-hay',
-  };
-
   function drawProps(g, world, theme) {
     for (let i = 0; i < world.tiles.length; i += 1) {
       const tile = world.tiles[i];
@@ -292,23 +264,6 @@ export function createRenderer(canvas) {
         g.strokeStyle = hexToRgba(theme.glass, 0.7);
         g.lineWidth = 1;
         g.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-        continue;
-      }
-
-      /* Предмет с картинкой рисуется картинкой; всё остальное — как было. */
-      const sprite = PROP_SPRITES[tile] && art(PROP_SPRITES[tile]);
-      if (sprite) {
-        g.drawImage(sprite, px - 2, py - 2, TILE_SIZE + 4, TILE_SIZE + 4);
-        if (tile === TILE.CRYSTAL) {
-          const pulse = 0.5 + Math.sin(world.time * 3 + i) * 0.25;
-          g.save();
-          g.globalCompositeOperation = 'lighter';
-          g.fillStyle = `rgba(255,226,90,${0.12 * pulse})`;
-          g.beginPath();
-          g.arc(cx, cy, 22, 0, 6.29);
-          g.fill();
-          g.restore();
-        }
         continue;
       }
 
@@ -472,17 +427,6 @@ export function createRenderer(canvas) {
      и мягкое пятно об этом соврало бы.
      ======================================================= */
 
-  /*
-   * Вещество на полу — белые картинки, крашенные на лету. Огонь ходит
-   * полосой из четырёх кадров и рисуется на сложение: свет складывается
-   * с любым полом и остаётся огнём на всех темах.
-   */
-  const FIELD_SPRITES = {
-    [GROUND.WATER]: { name: 'field-water', colour: '#2f9ae0', alpha: 0.75 },
-    [GROUND.ICE]: { name: 'field-ice', colour: '#bfeeff', alpha: 0.6 },
-    [GROUND.MUD]: { name: 'field-mud', colour: '#4a3d1e', alpha: 0.85 },
-  };
-
   function drawGround(g, world) {
     if (!world.ground) return;
 
@@ -504,18 +448,6 @@ export function createRenderer(canvas) {
         const caught = Math.min(1, world.groundAge[i] / FIRE_CATCH);
         const flicker = 0.75 + Math.random() * 0.25;
 
-        const flame = tinted('field-fire_x4', caught >= 1 ? '#ff9b2a' : '#c8461a');
-        if (flame) {
-          g.save();
-          g.globalCompositeOperation = 'lighter';
-          g.globalAlpha = (0.5 + caught * 0.5) * fade * flicker;
-          /* Кадр от времени и от клетки: соседние языки не должны биться
-             в такт, иначе пожар выглядит мигающей плиткой. */
-          drawFrame(g, flame, Math.floor(world.time * 9) + i, px + HALF, py + HALF, TILE_SIZE);
-          g.restore();
-          continue;
-        }
-
         g.save();
         g.globalCompositeOperation = 'lighter';
         g.fillStyle = `rgba(255,${60 + Math.round(caught * 40)},10,${(0.3 + caught * 0.4) * fade * flicker})`;
@@ -533,19 +465,6 @@ export function createRenderer(canvas) {
         }
         g.restore();
         continue;
-      }
-
-      const plate = FIELD_SPRITES[kind];
-      if (plate) {
-        const image = tinted(plate.name, plate.colour);
-        if (image) {
-          g.save();
-          g.globalAlpha = plate.alpha * fade;
-          if (plate.add) g.globalCompositeOperation = 'lighter';
-          g.drawImage(image, px, py, TILE_SIZE, TILE_SIZE);
-          g.restore();
-          continue;
-        }
       }
 
       if (kind === GROUND.WATER) {
@@ -611,70 +530,17 @@ export function createRenderer(canvas) {
      требует ни одного пикселя мимики.
      ======================================================= */
 
-  /*
-   * Какая полоса кадров под какое действие. Замах и каст важнее ходьбы:
-   * по ним игрок понимает, что сейчас прилетит, и подменять их шагом
-   * значило бы прятать единственное предупреждение.
-   */
-  function sheetFor(o) {
-    if (!o.sheet) return null;
-    if (o.sheet === 'corpse') return art('mage-corpse');
-
-    if ((o.cast || 0) > 0.05) {
-      const strike = art(`mage-${o.sheet}-cast_x2`) || art(`mage-${o.sheet}-swing_x2`);
-      if (strike) return strike;
-    }
-    if ((o.swing || 0) > 0.05) {
-      const strike = art(`mage-${o.sheet}-swing_x2`) || art(`mage-${o.sheet}-cast_x2`);
-      if (strike) return strike;
-    }
-    if (o.moving) {
-      const walk = art(`mage-${o.sheet}-walk_x4`);
-      if (walk) return walk;
-    }
-    return art(`mage-${o.sheet}-idle_x2`);
-  }
-
-  /* На экране тело — около двадцати шести пикселей; кадр рисуется чуть
-     крупнее, потому что посох в нём выходит за пределы фигуры. */
-  const MAGE_SIZE = 46;
-
   function mage(g, o) {
     const { x, y } = o;
     const palette = o.palette;
     const dx = Math.cos(o.angle);
     const dy = Math.sin(o.angle);
 
-    /* Тень под фигурой — единственное, что подделывает объём сверху.
-       Рисует её игра, а не картинка: запечённая тень при повороте уехала
-       бы вбок. */
+    /* Тень под фигурой — единственное, что подделывает объём сверху. */
     g.fillStyle = 'rgba(0,0,0,.4)';
     g.beginPath();
     g.ellipse(x + 1.5, y + 2, BODY + 3, BODY + 2, 0, 0, 6.29);
     g.fill();
-
-    const sheet = sheetFor(o);
-    if (sheet) {
-      g.save();
-      g.translate(x, y);
-      g.rotate(o.angle);
-      drawFrame(g, sheet, Math.floor((o.phase || 0) * 2), 0, 0, MAGE_SIZE);
-      g.restore();
-
-      /* Заряд светится там же, где у картинки навершие посоха: спереди. */
-      const heat = (o.charging ? 1 : 0) + (o.cast || 0);
-      if (heat > 0.05 && o.glow) {
-        g.save();
-        g.globalCompositeOperation = 'lighter';
-        g.fillStyle = o.glow;
-        g.globalAlpha = Math.min(0.8, 0.3 * heat);
-        g.beginPath();
-        g.arc(x + dx * 15, y + dy * 15, 5 + heat * 3, 0, 6.29);
-        g.fill();
-        g.restore();
-      }
-      return;
-    }
 
     if (o.downed) {
       g.fillStyle = palette.robe;
@@ -841,7 +707,7 @@ export function createRenderer(canvas) {
       const jitter = corpse.twitch > 0 ? (Math.random() - 0.5) * corpse.twitch * 2 : 0;
       mage(g, {
         x: corpse.x + jitter, y: corpse.y, angle: corpse.angle,
-        palette: ROBES.dead, sheet: 'corpse', phase: 0, downed: true,
+        palette: ROBES.dead, phase: 0, downed: true,
       });
     }
   }
@@ -871,9 +737,6 @@ export function createRenderer(canvas) {
       mage(g, {
         x: enemy.x, y: enemy.y, angle: enemy.angle,
         palette: ROBES[enemy.kind] || ROBES.thug,
-        sheet: enemy.kind === 'caster' ? 'caster'
-          : enemy.kind === 'carrier' ? 'carrier' : 'thug',
-        moving: Math.hypot(enemy.vx, enemy.vy) > 12,
         phase: enemy.step * 0.35,
         swing: enemy.swing || 0,
         cast: enemy.windup ? Math.min(1, enemy.windup * 3) : 0,
@@ -921,8 +784,6 @@ export function createRenderer(canvas) {
     mage(g, {
       x: player.x, y: player.y, angle: player.angle,
       palette: ROBES.player,
-      sheet: 'player',
-      moving: Math.hypot(player.vx, player.vy) > 12,
       phase: player.step * 0.35,
       cast: player.windup > 0 ? 1 : (player.cooldown > 0 ? player.cooldown * 3 : 0),
       charging: player.chargeLeft > 0,
@@ -1092,21 +953,10 @@ export function createRenderer(canvas) {
   function drawPops(g, world) {
     for (const ring of world.pops) {
       const t = 1 - ring.life / ring.span;
-      const r = ring.r + (ring.max - ring.r) * t;
-
-      const image = tinted('fx-ring', `rgb(${ring.colour})`);
-      if (image) {
-        g.save();
-        g.globalAlpha = (1 - t) * 0.9;
-        g.drawImage(image, ring.x - r, ring.y - r, r * 2, r * 2);
-        g.restore();
-        continue;
-      }
-
       g.strokeStyle = `rgba(${ring.colour},${(1 - t) * 0.9})`;
       g.lineWidth = 3 * (1 - t) + 1;
       g.beginPath();
-      g.arc(ring.x, ring.y, r, 0, 6.29);
+      g.arc(ring.x, ring.y, ring.r + (ring.max - ring.r) * t, 0, 6.29);
       g.stroke();
     }
   }
@@ -1114,14 +964,6 @@ export function createRenderer(canvas) {
   function drawParticles(g, world) {
     for (const particle of world.particles) {
       g.globalAlpha = Math.max(0, particle.life / particle.max);
-
-      const image = tinted('fx-spark', particle.color);
-      if (image) {
-        const r = particle.size * 1.6;
-        g.drawImage(image, particle.x - r / 2, particle.y - r / 2, r, r);
-        continue;
-      }
-
       g.fillStyle = particle.color;
       g.fillRect(particle.x - particle.size / 2, particle.y - particle.size / 2,
         particle.size, particle.size);
@@ -1137,15 +979,6 @@ export function createRenderer(canvas) {
       const fade = Math.min(1, cloud.life / cloud.span);
       const r = cloud.r * (1 + (1 - fade) * 0.5);
       const core = cloud.kind === 'dust' ? '190,168,120' : '214,232,244';
-
-      const image = tinted('fx-smoke', `rgb(${core})`);
-      if (image) {
-        g.save();
-        g.globalAlpha = 0.5 * fade;
-        g.drawImage(image, cloud.x - r, cloud.y - r, r * 2, r * 2);
-        g.restore();
-        continue;
-      }
 
       const grad = g.createRadialGradient(cloud.x, cloud.y, r * 0.15, cloud.x, cloud.y, r);
       grad.addColorStop(0, `rgba(${core},${0.46 * fade})`);
