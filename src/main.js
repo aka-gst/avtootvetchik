@@ -836,7 +836,34 @@ function vibrate(pattern) {
 
 let previous = performance.now();
 
+/*
+ * Кадр не имеет права убить игру.
+ *
+ * Пока планирование следующего кадра стояло последней строкой самого
+ * кадра, любая ошибка внутри останавливала цикл навсегда: мир замирал,
+ * кнопки переставали отвечать, и снаружи это выглядело как «игра просто не
+ * двигается» — без единой строчки в консоли, потому что ошибка случалась
+ * один раз и больше некому было её повторить.
+ *
+ * Теперь следующий кадр планируется всегда, а ошибка показывается игроку
+ * и запоминается в window.avto.error. Сломанная игра должна об этом
+ * говорить, а не молчать.
+ */
 function frame(now) {
+  requestAnimationFrame(frame);
+
+  try {
+    step(now);
+  } catch (error) {
+    if (!window.avto.error) {
+      window.avto.error = error;
+      setToast(`СБОЙ: ${String(error && error.message || error).slice(0, 60)}`, 6);
+      console.error('кадр упал', error);
+    }
+  }
+}
+
+function step(now) {
   const dt = Math.min(0.05, (now - previous) / 1000);
   previous = now;
 
@@ -936,7 +963,6 @@ function frame(now) {
   markCharging();
 
   input.endFrame();
-  requestAnimationFrame(frame);
 }
 
 
@@ -1085,6 +1111,12 @@ window.avto = {
   get world() { return world; },
   get scene() { return scene; },
   get level() { return level; },
+
+  /* Ввод и отрисовка — тоже наружу. Проверить, доходит ли касание до мира
+     и во что обходится кадр, иначе нечем: кадровый цикл в отладочных окнах
+     не крутится, а спросить напрямую можно всегда. */
+  get input() { return input; },
+  get renderer() { return renderer; },
 };
 
 const fromHash = levelFromHash();

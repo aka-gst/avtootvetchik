@@ -96,8 +96,16 @@ export function createRenderer(canvas) {
   let viewH = 0;
   let dpr = 1;
 
+  /*
+   * Потолок плотности пикселей. Телефон рапортует три, и на трёх холст
+   * выходит в одиннадцать мегапикселей — по нему каждый кадр гуляют два
+   * полноэкранных прохода света. Двойки хватает: разницы на глаз нет, а
+   * работы вчетверо меньше.
+   */
+  const MAX_DPR = 2;
+
   function resize(cssW, cssH, ratio) {
-    const next = Math.min(ratio || 1, 2.5);
+    const next = Math.min(ratio || 1, MAX_DPR);
     if (viewW === cssW && viewH === cssH && dpr === next) return;
 
     dpr = next;
@@ -1215,17 +1223,41 @@ export function createRenderer(canvas) {
         blast.tint || blast.colour || '#ffffff', fade);
     }
 
+    /*
+     * Больше двух десятков источников в кадре не нужно и вредно: каждый —
+     * это два радиальных градиента, а на глаз двадцать пятый костёр уже не
+     * различить. Оставляем ближние к камере.
+     */
+    if (lights.length > 22) {
+      lights.sort((a, b) => (Math.hypot(a.x - camX, a.y - camY)
+        - Math.hypot(b.x - camX, b.y - camY)));
+      lights.length = 22;
+    }
+
     return lights;
   }
 
+  /*
+   * Свет считается вполовину меньше кадра и растягивается обратно.
+   *
+   * Пятно света — это мягкое размытое ничто; половина разрешения на нём не
+   * видна вообще, а работы вчетверо меньше. На телефоне это разница между
+   * игрой и слайд-шоу: два полноэкранных прохода с десятками радиальных
+   * градиентов — самое дорогое, что вообще делает кадр.
+   */
+  const LIGHT_SCALE = 0.5;
+
   function drawLights(world, theme, camX, camY, zoom, shakeX, shakeY, halfW, halfH) {
-    if (lightLayer.width !== canvas.width || lightLayer.height !== canvas.height) {
-      lightLayer.width = canvas.width;
-      lightLayer.height = canvas.height;
+    const lw = Math.max(1, Math.round(canvas.width * LIGHT_SCALE));
+    const lh = Math.max(1, Math.round(canvas.height * LIGHT_SCALE));
+    if (lightLayer.width !== lw || lightLayer.height !== lh) {
+      lightLayer.width = lw;
+      lightLayer.height = lh;
     }
 
     const g = lightCtx;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const scale = dpr * LIGHT_SCALE;
+    g.setTransform(scale, 0, 0, scale, 0, 0);
     g.globalCompositeOperation = 'source-over';
     g.clearRect(0, 0, viewW, viewH);
     g.fillStyle = NIGHT;
@@ -1253,7 +1285,7 @@ export function createRenderer(canvas) {
     g.restore();
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(lightLayer, 0, 0);
+    ctx.drawImage(lightLayer, 0, 0, canvas.width, canvas.height);
 
     /*
      * Второй проход — цветом. Тьма показывает, где светло; этот проход —
