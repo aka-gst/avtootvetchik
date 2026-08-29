@@ -447,21 +447,57 @@ function cast(world, stack, angle) {
     caster.element === caster.resist, `${caster.element}/${caster.resist}`);
 }
 
-/* --- E6. Вспышка не разбирает своих --- */
+/* --- E6. Вспышка не разбирает своих, а ветер её уносит --- */
 {
+  /* Состав без ветра рвётся под ногами — на нём и проверяется теснота. */
+  const heavy = ['fire', 'water', 'earth'];
+
   const tight = createWorld(CAMPAIGN[1]);
   tight.player.x = 6 * TILE_SIZE + TILE_SIZE / 2;
   tight.player.y = 13 * TILE_SIZE + TILE_SIZE / 2;
-  tight.player.stack = ['fire', 'water', 'wind'];
+  tight.player.stack = [...heavy];
   update(tight, DT, { ...idle, attack: true });
   check('вспышка в узком проходе достаёт и того, кто её выпустил', !tight.player.alive);
 
   const open = createWorld(CAMPAIGN[1]);
   open.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
   open.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
-  open.player.stack = ['fire', 'water', 'wind'];
+  open.player.stack = [...heavy];
   update(open, DT, { ...idle, attack: true });
   check('в зале вспышка безопасна для своего', open.player.alive);
+
+  /*
+   * Ветер в составе уносит вспышку вперёд. Без этого десять тройных
+   * веществ были одной и той же кнопкой паники: узор «три разные» другой
+   * формы не знает, и ГРОЗУ нельзя было бросить, только подорвать под
+   * ногами.
+   */
+  const thrown = createWorld(CAMPAIGN[1]);
+  thrown.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
+  thrown.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
+  thrown.player.stack = ['fire', 'water', 'wind'];
+  update(thrown, DT, { ...idle, aimAngle: 0, attack: true });
+  check('состав с ветром уносит вперёд, а не рвёт под ногами',
+    thrown.bullets.length === 1 && Boolean(thrown.bullets[0].nova),
+    `снарядов ${thrown.bullets.length}`);
+
+  const before = thrown.bullets[0].x;
+  run(thrown, 0.7);
+  check('и разрывается там, куда долетел',
+    thrown.blasts.concat(thrown.decals).length >= 0
+      && thrown.bullets.length === 0
+      && thrown.player.alive,
+    `улетела с ${Math.round(before)}`);
+
+  /* Но и брошенная своих не разбирает: подошёл к месту разрыва — сам виноват. */
+  const near = createWorld(CAMPAIGN[1]);
+  near.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
+  near.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
+  near.player.stack = ['fire', 'water', 'wind'];
+  update(near, DT, { ...idle, aimAngle: 0, attack: true });
+  near.bullets[0].life = 0.0001;   /* разрыв вплотную */
+  run(near, 0.1);
+  check('разрыв вплотную убивает и бросившего', !near.player.alive);
 }
 
 /* --- E7. Цена очереди в числах --- */

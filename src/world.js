@@ -778,31 +778,96 @@ function castBeam(world, spell, angle) {
  * кнопку паники, и в игре, где смерть стоит полсекунды, такая смерть
  * скорее смешная, чем обидная.
  */
+/*
+ * Вспышка. Без ветра в составе она рвёт там, где стоишь, — и в тесноте
+ * достаёт своего же.
+ *
+ * С ветром её уносит вперёд, и это не поблажка, а следствие правила
+ * «состав решает вещество». Тройной состав всегда даёт вспышку — узор
+ * «три разные» другой формы не знает, — и без этого десять самых
+ * интересных веществ оказывались одной и той же кнопкой паники: ГРОЗУ и
+ * БУРЮ нельзя было бросить, только подорвать под ногами. Носителем стал
+ * ветер, потому что он и так отвечает за дальность: чему быть унесённым,
+ * видно прямо по составу, а не по заученному списку.
+ */
 function castNova(world, spell) {
+  const player = world.player;
+
+  if (spell.substance.traits.gust) {
+    const angle = player.angle;
+    world.bullets.push({
+      x: player.x + Math.cos(angle) * 16,
+      y: player.y + Math.sin(angle) * 16,
+      vx: Math.cos(angle) * 430,
+      vy: Math.sin(angle) * 430,
+      from: 'player',
+      weapon: 'daemon',
+      ox: player.x,
+      oy: player.y,
+      elements: spell.elements,
+      substance: spell.substance,
+      nova: spell,
+      pierce: 0,
+      breaks: Boolean(spell.form.breaks),
+      colour: spell.substance.colour,
+      life: 0.55,
+    });
+    world.events.push({ type: 'nova-thrown' });
+    return;
+  }
+
+  novaAt(world, spell, player.x, player.y, true);
+}
+
+function novaAt(world, spell, x, y, atFeet) {
   const player = world.player;
   const { form, substance } = spell;
   const elements = spell.elements;
 
   for (const enemy of world.enemies) {
     if (!enemy.alive) continue;
-    const dx = enemy.x - player.x;
-    const dy = enemy.y - player.y;
+    const dx = enemy.x - x;
+    const dy = enemy.y - y;
     if (Math.hypot(dx, dy) > form.radius) continue;
-    if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
+    if (!hasSight(world, x, y, enemy.x, enemy.y)) continue;
     const toEnemy = Math.atan2(dy, dx);
     if (resisted(world, enemy, toEnemy, { elements })) continue;
     killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
   }
 
+  /*
+   * Кого достало — решается до того, как вещество ляжет на пол. Иначе
+   * вспышка ставит облако пара и им же закрывает себе проверку попадания:
+   * брошенный в упор ТУМАН оставлял бросившего живым, потому что тот
+   * оказывался за собственным паром. Свой дым не защищает от своего удара.
+   */
+  const caughtSelf = !atFeet && player.alive
+    && Math.hypot(player.x - x, player.y - y) <= form.radius
+    && hasSight(world, x, y, player.x, player.y);
+
   world.blasts.push({
-    kind: 'nova', x: player.x, y: player.y,
+    kind: 'nova', x, y,
     radius: form.radius, life: 0.3, span: 0.3, colour: '#ffffff', tint: substance.colour,
   });
 
-  land(world, tilesInCircle(world, player.x, player.y, form.radius), substance,
-    { x: player.x, y: player.y, r: form.radius * 0.8 });
+  land(world, tilesInCircle(world, x, y, form.radius), substance,
+    { x, y, r: form.radius * 0.8 });
 
-  applySignature(world, spell, { x: player.x, y: player.y });
+  applySignature(world, spell, { x, y });
+
+  /*
+   * Брошенная вспышка своих не разбирает так же, как и та, что рвётся под
+   * ногами: подошёл слишком близко к месту разрыва — сам виноват. Без
+   * этого «унести ветром» превращалось бы в способ обойти единственную
+   * цену, которая у вспышки есть.
+   */
+  if (!atFeet) {
+    if (caughtSelf) {
+      world.events.push({ type: 'backfire' });
+      killPlayer(world, Math.atan2(player.y - y, player.x - x));
+    }
+    return;
+  }
 
   /*
    * Отражение считается по соседним клеткам, а не лучами: восемь соседей
@@ -813,18 +878,18 @@ function castNova(world, spell) {
    * Считаются только стены: мебель низкая, волна идёт поверх, и смерть от
    * стола выглядела бы случайной, а не заслуженной.
    */
-  const cx = Math.floor(player.x / TILE_SIZE);
-  const cy = Math.floor(player.y / TILE_SIZE);
+  const cx = Math.floor(x / TILE_SIZE);
+  const cy = Math.floor(y / TILE_SIZE);
   let walls = 0;
 
   for (let dy = -1; dy <= 1; dy += 1) {
     for (let dx = -1; dx <= 1; dx += 1) {
       if (!dx && !dy) continue;
-      const x = cx + dx;
-      const y = cy + dy;
-      const tile = (x < 0 || y < 0 || x >= world.w || y >= world.h)
+      const nx = cx + dx;
+      const ny = cy + dy;
+      const tile = (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h)
         ? TILE.WALL
-        : world.tiles[y * world.w + x];
+        : world.tiles[ny * world.w + nx];
       if (tile === TILE.WALL) walls += 1;
     }
   }
@@ -1323,9 +1388,14 @@ function updateBullets(world, dt) {
      */
     if (bullet.substance && bullet.life <= 0 && !bullet.landed) {
       bullet.landed = true;
-      const reach = bullet.substance.traits.reach || 1;
-      land(world, tilesInCircle(world, bullet.x, bullet.y, TILE_SIZE * 0.9 * reach),
-        bullet.substance, { x: bullet.x, y: bullet.y, r: TILE_SIZE * 1.2 });
+
+      if (bullet.nova) {
+        novaAt(world, bullet.nova, bullet.x, bullet.y, false);
+      } else {
+        const reach = bullet.substance.traits.reach || 1;
+        land(world, tilesInCircle(world, bullet.x, bullet.y, TILE_SIZE * 0.9 * reach),
+          bullet.substance, { x: bullet.x, y: bullet.y, r: TILE_SIZE * 1.2 });
+      }
     }
   }
 
