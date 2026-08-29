@@ -1,0 +1,16 @@
+ink: #10131b
+dark: #202633
+steel: #596474
+light: #c4d1d8
+cyan: #24dce6
+pink: #f23891
+orange: #ef6a2b
+blue: #318ed8
+green: #4f9d59
+mud: #684a31
+ice: #82d0e8
+red: #a51e31
+yellow: #ecd24b
+white: #ffffff
+rust: #8a4b2b
+skin: #c69a76
