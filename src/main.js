@@ -17,6 +17,7 @@ import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
+import { iconTag } from './icons.js';
 import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
@@ -618,8 +619,12 @@ function renderTome() {
       ? `<span class="tome-note">${entry.note}</span>`
       : '';
 
+    /* Значок только у открытого: закрытая клетка обязана оставаться
+       вопросом, а картинка выдала бы ответ раньше времени. */
+    const icon = entry.known ? iconTag(entry.name) : '';
+
     return `<div class="tome-cell" data-known="${entry.known ? 1 : 0}">`
-      + `<span class="tome-marks">${marks}</span>${name}${note}</div>`;
+      + `<span class="tome-marks">${marks}</span>${icon}${name}${note}</div>`;
   }).join('');
 
   /*
@@ -634,6 +639,7 @@ function renderTome() {
   ui.tomeSignatures.innerHTML = shown.map((entry) => {
     if (entry.known) {
       return `<li data-known="1" style="border-left-color:${entry.colour}">`
+        + iconTag(entry.name)
         + `<b class="tome-sign" style="color:${entry.colour}">${entry.name}</b> `
         + `<span class="tome-recipe">${entry.substance} · ${entry.form}</span>`
         + `<br><span class="tome-note">${entry.note}</span></li>`;
