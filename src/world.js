@@ -174,7 +174,15 @@ export function hasSight(world, ax, ay, bx, by) {
 export function hasShot(world, ax, ay, bx, by) {
   const dx = bx - ax;
   const dy = by - ay;
-  const steps = Math.ceil(Math.hypot(dx, dy) / (TILE_SIZE * 0.4));
+
+  /*
+   * Шаг тот же, что у снаряда, и это не мелочь. Проверка шагала вдвое
+   * крупнее полёта и потому не замечала углов, которые снаряд задевал:
+   * «выстрел свободен» — а он гибнет о скамью. Бот на этом выпустил
+   * полторы тысячи зарядов в один и тот же угол, стоя в трёх шагах от
+   * цели, и не понял почему. Живой бы решил, что игра сломана.
+   */
+  const steps = Math.ceil(Math.hypot(dx, dy) / 6);
   for (let i = 1; i < steps; i += 1) {
     const t = i / steps;
     if (blocksShot(tileAt(world, ax + dx * t, ay + dy * t))) return false;
@@ -301,8 +309,10 @@ export function createWorld(level) {
     corpses: [],
 
     /*
-     * Этаж спит, пока никто не умер. Первая смерть будит всех разом —
-     * см. thinkEnemy: до неё враги не переходят в погоню.
+     * Этаж спит, пока смерть не заметили. Не «пока никто не умер»: убитый
+     * в стороне, которого никто не видел и не слышал, тревоги не поднимает.
+     * Именно это и делает тихую фазу игрой, а не паузой перед боем — см.
+     * witnessed() ниже и thinkEnemy: до тревоги враги не гонятся.
      */
     engaged: false,
 
@@ -409,10 +419,11 @@ export function createWorld(level) {
 function fireGun(world, shooter, from) {
   const weapon = WEAPONS[shooter.weapon];
   const angle = shooter.angle + rand(-weapon.spread, weapon.spread) * (from === 'enemy' ? 2.4 : 1);
+  const start = muzzle(world, shooter.x, shooter.y, shooter.angle);
 
   world.bullets.push({
-    x: shooter.x + Math.cos(shooter.angle) * 14,
-    y: shooter.y + Math.sin(shooter.angle) * 14,
+    x: start.x,
+    y: start.y,
     vx: Math.cos(angle) * weapon.speed,
     vy: Math.sin(angle) * weapon.speed,
     from,
@@ -526,6 +537,31 @@ function swingMelee(world, attacker, from) {
  * Через эту дверь проходят все смертельные пути — удар, чужая порча,
  * форма демона, — иначе правило однажды забыли бы в одном из них.
  */
+/*
+ * Кто заметил смерть.
+ *
+ * Видел — если живой смотрит в ту сторону и между ними нет стены. Слышал —
+ * если он ближе, чем падает тело. Второе намеренно куда короче первого:
+ * иначе «тихо» не существовало бы, а на маленьком этаже слышно было бы
+ * всё и всегда.
+ */
+const WITNESS_SIGHT = 300;
+const WITNESS_HEAR = 130;
+
+function witnessed(world, victim) {
+  for (const enemy of world.enemies) {
+    if (!enemy.alive || enemy === victim) continue;
+
+    const dist = Math.hypot(enemy.x - victim.x, enemy.y - victim.y);
+    if (dist < WITNESS_HEAR) return true;
+    if (dist < WITNESS_SIGHT && hasSight(world, enemy.x, enemy.y, victim.x, victim.y)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function resists(enemy, elements) {
   if (!enemy.resist) return false;
   if (!elements || !elements.length) return false; /* железо стойкость не разбирает */
@@ -559,8 +595,15 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
   enemy.alive = false;
   world.kills += 1;
 
-  /* Первая смерть — тот самый спусковой крючок. Дальше этаж живёт как жил. */
-  if (!world.engaged) {
+  /*
+   * Тело падает — и это слышно. Шум идёт всегда, даже когда тревоги нет:
+   * услышавший пойдёт посмотреть, что упало, и это единственная плата за
+   * убийство в стороне.
+   */
+  emitNoise(world, enemy.x, enemy.y, 140, 'body');
+
+  /* Тревогу поднимает не смерть, а замеченная смерть. */
+  if (!world.engaged && witnessed(world, enemy)) {
     world.engaged = true;
     world.events.push({ type: 'engaged' });
   }
@@ -674,13 +717,30 @@ function castForm(world, spell) {
   }
 }
 
+/*
+ * Откуда вылетает снаряд. Обычно — на шаг впереди, чтобы он не рождался
+ * внутри собственного тела. Но если этот шаг попадает в мебель, снаряд
+ * гибнет в стволе: каждый выстрел уходит в ничто, а игрок видит, что
+ * стреляет, и не понимает, почему не попадает.
+ *
+ * Поймано прогоном: бот, встав углом к скамье, выпустил полторы тысячи
+ * зарядов подряд и не убил стоящего в трёх шагах. У живого это выглядело
+ * бы поломкой игры, а не мебелью.
+ */
+function muzzle(world, x, y, angle) {
+  const ahead = { x: x + Math.cos(angle) * 14, y: y + Math.sin(angle) * 14 };
+  if (blocksShot(tileAt(world, ahead.x, ahead.y))) return { x, y };
+  return ahead;
+}
+
 function spawnDaemon(world, angle, spell) {
   const player = world.player;
   const { form, substance } = spell;
+  const from = muzzle(world, player.x, player.y, angle);
 
   world.bullets.push({
-    x: player.x + Math.cos(angle) * 14,
-    y: player.y + Math.sin(angle) * 14,
+    x: from.x,
+    y: from.y,
     vx: Math.cos(angle) * form.speed,
     vy: Math.sin(angle) * form.speed,
     from: 'player',
@@ -821,8 +881,8 @@ function castNova(world, spell) {
   if (spell.substance.traits.gust) {
     const angle = player.angle;
     world.bullets.push({
-      x: player.x + Math.cos(angle) * 16,
-      y: player.y + Math.sin(angle) * 16,
+      x: muzzle(world, player.x, player.y, angle).x,
+      y: muzzle(world, player.x, player.y, angle).y,
       vx: Math.cos(angle) * 430,
       vy: Math.sin(angle) * 430,
       from: 'player',

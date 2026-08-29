@@ -201,9 +201,15 @@ function cast(world, stack, angle) {
     return { x: Math.cos(angle), y: Math.sin(angle) };
   }
 
+  /*
+   * Времени вдвое больше, чем было. Причина не в боте: с тех пор как этаж
+   * спит до замеченной смерти, враги перестали бежать навстречу, и весь
+   * этаж приходится обходить ногами. Проверяется проходимость, а не
+   * скорость, — поэтому растёт бюджет, а не требования.
+   */
   function play(floor) {
   const world = createWorld(floor);
-  run(world, 150, (w) => {
+  run(world, 300, (w) => {
     const player = w.player;
     const { enemy, dist } = nearest(w);
 
@@ -220,7 +226,14 @@ function cast(world, stack, angle) {
        * же правилам, иначе он проверяет не игру, а поддавки. Стихии берёт
        * только те, что даёт этаж, — как и живой игрок.
        */
-      if (clear && dist < 260) {
+      /*
+       * Ближе, чем летит плевок. Порог стоял на 260, а одиночный демон
+       * долетает на 211 — и пока враги сами бежали навстречу, разница не
+       * замечалась. Как только этаж стал спать до замеченной смерти, бот
+       * встал на 256 и триста секунд стрелял в воздух: расстояние он
+       * держал по своему порогу, а не по дальности того, чем стреляет.
+       */
+      if (clear && dist < 190) {
         if (player.stack.length) return { ...idle, aimAngle: angle, attack: true };
         if (player.chargeLeft <= 0) {
           const element = w.elements.find((candidate) => candidate !== enemy.resist);
@@ -1159,17 +1172,20 @@ function cast(world, stack, angle) {
   const victim = world.enemies.find((e) => e.alive);
   for (const enemy of world.enemies) if (enemy !== victim) enemy.alive = false;
 
-  const edge = hay[0];
+  /* Стреляем снизу вверх по краю копны: слева от неё стоит скамья, и
+     выстрел вдоль ряда упирался бы в мебель, а не в солому. */
+  const edge = hay[hay.length - 1];
   const hx = ((edge % world.w) + 0.5) * TILE_SIZE;
   const hy = (((edge / world.w) | 0) + 0.5) * TILE_SIZE;
-  victim.x = hx;
+
+  victim.x = hx + TILE_SIZE;
   victim.y = hy + TILE_SIZE;
   victim.state = 'idle';
   victim.resist = null;
 
-  world.player.x = hx - TILE_SIZE * 4;
-  world.player.y = hy;
-  cast(world, ['fire'], 0);
+  world.player.x = hx;
+  world.player.y = hy + TILE_SIZE * 2.5;
+  cast(world, ['fire'], -Math.PI / 2);
   run(world, 0.4);
 
   const left = hay.filter((i) => world.tiles[i] === TILE.HAY).length;
@@ -1181,9 +1197,9 @@ function cast(world, stack, angle) {
   /* Но не всё подряд: молния соломе безразлична. */
   const dry = createWorld(TUTOR);
   dry.elements = [...ELEMENT_ORDER];
-  dry.player.x = hx - TILE_SIZE * 4;
-  dry.player.y = hy;
-  cast(dry, ['bolt'], 0);
+  dry.player.x = hx;
+  dry.player.y = hy + TILE_SIZE * 2.5;
+  cast(dry, ['bolt'], -Math.PI / 2);
   run(dry, 0.4);
   check('молния солому не берёт', dry.tiles[edge] === TILE.HAY);
 }
