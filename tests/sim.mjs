@@ -18,11 +18,28 @@ import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex } from '..
 import { buildFlowField } from '../src/ai.js';
 import { TILE, blocksMove, decode, encode, elementMask, elementsFromMask, weakTo } from '../src/level.js';
 import { createScore } from '../src/score.js';
-import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
+import { AIM_CONE, assistAim, closeThreat, lockTarget, cycleTarget, lockCandidates } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
 import {
   GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH,
 } from '../src/field.js';
+
+/*
+ * Случайность зафиксирована сидом.
+ *
+ * Враги думают и стреляют по таймерам от Math.random, и бот проходил этажи
+ * с разбросом: раз в десяток запусков не успевал, и прогон падал в случайном
+ * месте. Плавающий FAIL хуже медленного прогона — его начинают пролистывать,
+ * а вместе с ним пролистают и настоящий.
+ *
+ * Разброс от этого не исчез, он просто перестал быть лотереей: чтобы
+ * посмотреть другой расклад, меняют сид, а не перезапускают наугад.
+ */
+let seed = 20260829;
+Math.random = () => {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+};
 
 /*
  * Этажи берутся по имени, а не по номеру. Номера уже разъехались один раз,
@@ -995,6 +1012,51 @@ function cast(world, stack, angle) {
   check('разряд по луже забрал всех троих',
     under.every((enemy) => !enemy.alive),
     under.map((enemy) => (enemy.alive ? 'жив' : 'нет')).join(' '));
+}
+
+
+/* --- N. Прицел видит и неживое --- */
+{
+  /*
+   * Обучалка просит разбить бочку, а прицел с клавиатуры держался только
+   * за тела: на неподвижное он не наводился никогда, и пройти обучалку
+   * можно было исключительно мышью. Это нашлось не прогоном, а живым
+   * человеком за игрой — тем обиднее.
+   */
+  const world = createWorld(TUTOR);
+  let barrel = -1;
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  }
+
+  const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
+  const by = (((barrel / world.w) | 0) + 0.5) * TILE_SIZE;
+  world.player.x = bx - TILE_SIZE * 3;
+  world.player.y = by;
+
+  const all = lockCandidates(world, 0);
+  check('бочка попадает в список целей',
+    all.some((target) => target.prop === barrel), `целей ${all.length}`);
+
+  /* Но не вперёд живых: в бою прицел не должен уезжать на скамейку. */
+  const first = lockTarget(world, null, 0);
+  check('живой всё равно берётся первым',
+    first && first.prop === undefined,
+    first ? (first.prop === undefined ? 'живой' : 'предмет') : 'никого');
+
+  /* Tab обязан до неё доводить — иначе список бесполезен. */
+  let target = first;
+  let steps = 0;
+  while (steps < all.length + 1 && (!target || target.prop !== barrel)) {
+    target = cycleTarget(world, target, 0);
+    steps += 1;
+  }
+  check('Tab доводит до бочки', target && target.prop === barrel, `за ${steps} нажатий`);
+
+  /* Разбитая перестаёт быть целью в тот же кадр. */
+  world.tiles[barrel] = 0;
+  check('разбитая бочка из целей уходит',
+    !lockCandidates(world, 0).some((t) => t.prop === barrel));
 }
 
 

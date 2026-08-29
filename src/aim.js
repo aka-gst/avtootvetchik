@@ -9,7 +9,8 @@
  * возвращает угол. Поэтому его проверяет прогон, а не глаз.
  */
 
-import { hasSight, angleDelta } from './world.js';
+import { hasSight, angleDelta, TILE_SIZE } from './world.js';
+import { weakTo } from './level.js';
 
 /*
  * Помощь прицеливанию. Ширина сектора зависит от того, чем целятся:
@@ -110,35 +111,84 @@ export function hasTargetUnderAim(world, angle) {
 const LOCK_RANGE = 470;
 const LOCK_KEEP = 520;
 
-export function lockTarget(world, previous, facing) {
-  const player = world.player;
+/*
+ * Целью может быть не только живой. Бочку, валун и кристалл ломают тем же
+ * заклинанием, что и врага, — а попасть по ним с клавиатуры было нельзя
+ * вовсе: прицел держался за тела и на неподвижное не наводился никогда.
+ * Обучалка при этом просила разбить бочку, и сделать это можно было только
+ * мышью. Теперь предметы стоят в том же списке целей.
+ *
+ * Но стоят позади: пока в комнате есть живой, взгляд держится за живого —
+ * иначе в бою прицел уезжал бы на скамейку. Переключает Tab.
+ */
+const PROP_PENALTY = 900;
 
-  const visible = (enemy, limit) => {
-    if (!enemy || !enemy.alive) return false;
-    const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-    if (dist > limit) return false;
-    return hasSight(world, player.x, player.y, enemy.x, enemy.y);
+function targetAt(world, index) {
+  return {
+    prop: index,
+    x: ((index % world.w) + 0.5) * TILE_SIZE,
+    y: (((index / world.w) | 0) + 0.5) * TILE_SIZE,
+  };
+}
+
+function sameTarget(a, b) {
+  if (!a || !b) return false;
+  if (a.prop !== undefined || b.prop !== undefined) return a.prop === b.prop;
+  return a === b;
+}
+
+/* Живой ли ещё захват. Предмет «жив», пока цел: разбитый перестаёт быть
+   целью в тот же кадр, и прицел уходит дальше сам. */
+function alive(world, target) {
+  if (!target) return false;
+  if (target.prop !== undefined) return weakTo(world.tiles[target.prop]) !== null;
+  return Boolean(target.alive);
+}
+
+function visible(world, target, limit) {
+  if (!alive(world, target)) return false;
+  const player = world.player;
+  const dist = Math.hypot(target.x - player.x, target.y - player.y);
+  if (dist > limit) return false;
+  return hasSight(world, player.x, player.y, target.x, target.y);
+}
+
+/* Все цели по порядку удобства: сначала живые, потом предметы. */
+export function lockCandidates(world, facing) {
+  const player = world.player;
+  const out = [];
+
+  const add = (target, penalty) => {
+    if (!visible(world, target, LOCK_RANGE)) return;
+    const dx = target.x - player.x;
+    const dy = target.y - player.y;
+    const off = Math.abs(angleDelta(facing, Math.atan2(dy, dx)));
+    /* Ближе — важнее, но и разворачиваться на 180° ради лишнего метра глупо. */
+    out.push({ target, score: Math.hypot(dx, dy) + off * 140 + penalty });
   };
 
-  if (visible(previous, LOCK_KEEP)) return previous;
-
-  let best = null;
-  let bestScore = Infinity;
-
-  for (const enemy of world.enemies) {
-    if (!visible(enemy, LOCK_RANGE)) continue;
-
-    const dx = enemy.x - player.x;
-    const dy = enemy.y - player.y;
-    const dist = Math.hypot(dx, dy);
-    const off = Math.abs(angleDelta(facing, Math.atan2(dy, dx)));
-
-    /* Ближе — важнее, но и разворачиваться на 180° ради лишнего метра глупо. */
-    const score = dist + off * 140;
-    if (score >= bestScore) continue;
-    bestScore = score;
-    best = enemy;
+  for (const enemy of world.enemies) add(enemy, 0);
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (weakTo(world.tiles[i])) add(targetAt(world, i), PROP_PENALTY);
   }
 
-  return best;
+  return out.sort((a, b) => a.score - b.score).map((entry) => entry.target);
+}
+
+export function lockTarget(world, previous, facing) {
+  if (visible(world, previous, LOCK_KEEP)) {
+    /* Предмет пересобирается каждый кадр, поэтому возвращаем свежий
+       объект с теми же координатами, а не устаревший. */
+    return previous.prop !== undefined ? targetAt(world, previous.prop) : previous;
+  }
+  return lockCandidates(world, facing)[0] || null;
+}
+
+/* Следующая цель по кругу. Один и тот же список, тот же порядок — значит
+   Tab всегда идёт в одну сторону, а не прыгает случайно. */
+export function cycleTarget(world, previous, facing) {
+  const list = lockCandidates(world, facing);
+  if (!list.length) return null;
+  const at = list.findIndex((target) => sameTarget(target, previous));
+  return list[(at + 1) % list.length];
 }

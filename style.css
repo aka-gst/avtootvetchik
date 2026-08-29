@@ -237,20 +237,66 @@ html, body {
 
 .form[hidden] { display: none; }
 
+/* =========================================================
+   ПЯТЬ КЛАВИШ
+   =========================================================
+   Панель висит всегда. Состав — весь язык игры, и держать
+   его в памяти игрок не обязан: пока клавиши на экране,
+   заклинание собирается глазами, а не по памяти.
+   ========================================================= */
+
 .daemons {
   position: fixed;
-  left: max(10px, env(safe-area-inset-left));
-  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
   z-index: 9;
-  display: none;
-  flex-direction: column;
-  gap: 9px;
+  display: flex;
+  gap: 8px;
+  transform: translateX(-50%);
 }
 
 .daemon-key {
-  width: 54px;
-  height: 54px;
-  font: 900 13px var(--mono);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 62px;
+  padding: 7px 4px 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  background: #0a0f10e6;
+  cursor: pointer;
+  touch-action: none;
+  transition: transform .08s, background .12s;
+}
+
+.daemon-key b {
+  font: 900 17px/1 var(--mono);
+  color: inherit;
+}
+
+.daemon-key i {
+  font: 700 8px/1 var(--mono);
+  font-style: normal;
+  letter-spacing: .1em;
+  color: #8fa39b;
+}
+
+.daemon-key:hover { background: #10201ce6; }
+.daemon-key.is-held,
+.daemon-key[data-active="1"] {
+  transform: translateY(2px);
+  background: currentColor;
+}
+.daemon-key[data-active="1"] b { color: #050b0c; }
+.daemon-key[data-active="1"] i { color: #050b0c; }
+
+/* Недоступное на этаже не прячется, а тушится: так видно, что стихий пять
+   и какие ещё впереди. Обещания при этом нет — по такой кнопке видно, что
+   она закрыта. */
+.daemon-key[data-locked="1"] {
+  opacity: .3;
+  filter: grayscale(1);
+  cursor: default;
 }
 
 .daemon-key[data-element="fire"] { border-color: #ff5a1f; color: #ff5a1f; }
@@ -377,10 +423,11 @@ html, body {
   transform: scale(.94);
 }
 
-/* Кнопки нужны только пальцу: мышь получает тот же ввод с клавиатуры. */
+/* Кнопка удара нужна только пальцу: мышь получает тот же ввод с клавиатуры.
+   Панель стихий видна всем — она же и подсказка по клавишам. */
 @media (pointer: coarse) {
   .pad { display: grid; }
-  .daemons { display: flex; }
+  .daemon-key { width: 58px; padding: 10px 4px 9px; }
   .toast { bottom: max(30vh, 190px); }
 }
 
@@ -762,4 +809,70 @@ html, body {
 .tome-recipe {
   color: #9a8fae;
   font: 600 9px var(--mono);
+}
+
+
+/* =========================================================
+   НАХОДКА
+   =========================================================
+   Новое вещество или именное заклинание — единственное
+   событие, ради которого стоит отвлечь игрока от боя. Всё
+   остальное он прочитает потом в книге; это надо заметить
+   сейчас, поэтому крупно и по центру.
+   ========================================================= */
+
+.found {
+  position: fixed;
+  left: 50%;
+  top: 34%;
+  z-index: 12;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 34px 62px;
+  text-align: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: found-in .5s cubic-bezier(.2, 1.4, .4, 1);
+
+  /* Подложка размытым пятном, а не панелью: объявление всплывает поверх
+     боя, и рамка посреди экрана читалась бы как окно, которое надо
+     закрыть. Пятно гасит фон ровно там, где стоят буквы. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(5, 11, 12, .92) 0%,
+    rgba(5, 11, 12, .74) 48%,
+    rgba(5, 11, 12, 0) 76%
+  );
+}
+
+.found[hidden] { display: none; }
+
+.found-kicker {
+  font: 800 10px var(--mono);
+  letter-spacing: .34em;
+  color: #8fa39b;
+}
+
+.found b {
+  font: 900 clamp(30px, 7vw, 58px)/1 system-ui, -apple-system, sans-serif;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  text-shadow: 0 0 26px currentColor;
+}
+
+.found i {
+  max-width: 24ch;
+  font: 600 11px/1.4 var(--mono);
+  font-style: normal;
+  color: #b9cdc5;
+}
+
+@keyframes found-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.86); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .found { animation: none; }
 }

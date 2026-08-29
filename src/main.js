@@ -9,7 +9,7 @@
 import { CAMPAIGN } from './levels.js';
 import { decode, encode } from './level.js';
 import { createWorld, update } from './world.js';
-import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget } from './aim.js';
+import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget, cycleTarget } from './aim.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -61,6 +61,10 @@ const ui = {
   tomeSignatures: $('tomeSignatures'),
   tomeClose: $('tomeClose'),
   tomeOpen: $('tomeOpen'),
+  found: $('found'),
+  foundKicker: $('foundKicker'),
+  foundName: $('foundName'),
+  foundNote: $('foundNote'),
 };
 
 /*
@@ -128,6 +132,7 @@ let view = { x: 0, y: 0 };
 let lastView = { zoom: 1, camX: 0, camY: 0 };
 let toastTimer = 0;
 let tomeVisible = false;
+let foundTimer = 0;
 let deathHold = 0;
 let attempts = 0;
 
@@ -268,17 +273,64 @@ function controlsHint() {
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
     ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ СТИХИИ, БОЛЬШАЯ ВЫПУСКАЕТ.'
     : `WASD — ИДТИ. СТИХИИ: ${given}. ПРОБЕЛ ВЫПУСКАЕТ, Q СБРАСЫВАЕТ. `
+      + 'TAB МЕНЯЕТ ЦЕЛЬ — ИМ ЖЕ НАВОДЯТСЯ НА БОЧКИ И КАМНИ. '
       + 'СОСТАВ РЕШАЕТ, ЧТО ВЫЛЕТИТ, ПОРЯДОК — КАКОЙ ФОРМЫ. B — КНИГА, R — ЗАНОВО.';
 }
 
-/* Кнопки стихий, которых этаж не даёт, не показываются: недоступная
-   кнопка на экране — это обещание, которого игра не держит. */
+/*
+ * Панель пяти клавиш. Подписи берутся из самих стихий, поэтому смена
+ * раскладки не требует править разметку: молния переехала со слэша на
+ * шифт — панель узнала об этом сама.
+ *
+ * Недоступное на этаже тушится, а не прячется: игрок должен видеть, что
+ * стихий пять, и какие ещё впереди. Обещания тут нет — по такой кнопке
+ * сразу видно, что она закрыта.
+ */
 function syncElementButtons() {
   const given = level.elements || ELEMENT_ORDER;
+
   for (const id of ELEMENT_ORDER) {
     const button = $(`btn-${id}`);
-    if (button) button.hidden = !given.includes(id);
+    if (!button) continue;
+
+    const element = ELEMENTS[id];
+    const open = given.includes(id);
+
+    button.innerHTML = `<b>${element.key}</b><i>${element.name}</i>`;
+    button.style.color = open ? element.colour : '#8fa39b';
+    button.dataset.locked = open ? '0' : '1';
+    button.disabled = !open;
   }
+}
+
+/* Подсветка нажатой стихии: набирается — горит. Иначе панель остаётся
+   картинкой, а она должна отвечать. */
+function markCharging() {
+  const charging = world && world.player.alive ? world.player.charging : null;
+  for (const id of ELEMENT_ORDER) {
+    const button = $(`btn-${id}`);
+    if (button) button.dataset.active = id === charging ? '1' : '0';
+  }
+}
+
+/*
+ * Находка объявляется крупно и по центру. Всё остальное в этой игре можно
+ * прочитать потом в книге; новое заклинание — единственное, что надо
+ * заметить сейчас, иначе игрок так и не узнает, что нашёл его.
+ */
+function showFound(kicker, name, note, colour) {
+  ui.foundKicker.textContent = kicker;
+  ui.foundName.textContent = name;
+  ui.foundName.style.color = colour;
+  ui.foundNote.textContent = note || '';
+  ui.found.hidden = false;
+
+  /* Пересборка анимации: без неё вторая находка подряд не «щёлкает». */
+  ui.found.style.animation = 'none';
+  void ui.found.offsetWidth;
+  ui.found.style.animation = '';
+
+  foundTimer = 2.6;
 }
 
 
@@ -483,7 +535,12 @@ let tutorStep = 0;
 
 function tutorStart() {
   tutorStep = level.tutorial ? 1 : 0;
-  if (tutorStep) setToast('НАБЕРИ ← ОГОНЬ, ЖМИ ПРОБЕЛ. / — МОЛНИЯ', 3.6);
+  /* Клавиши берутся из самих стихий: раскладка уже переезжала, и вшитый
+     в текст слэш пережил бы переезд и врал бы игроку. */
+  if (tutorStep) {
+    setToast(`НАБЕРИ ${ELEMENTS.fire.key} ОГОНЬ, ЖМИ ПРОБЕЛ. `
+      + `${ELEMENTS.bolt.key} — МОЛНИЯ`, 3.6);
+  }
 }
 
 function tutorFeed(event) {
@@ -491,13 +548,13 @@ function tutorFeed(event) {
 
   if (tutorStep === 1 && event.type === 'kill') {
     tutorStep = 2;
-    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ — РАЗБЕЙ ЕЁ ОГНЁМ', 3.6);
+    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ. TAB НАВЕДЁТ НА НЕЁ, БЕЙ ОГНЁМ', 4.2);
     return;
   }
 
   if (tutorStep <= 2 && event.type === 'barrel') {
     tutorStep = 3;
-    setToast('ВОДА РАЗЛИЛАСЬ. МОЛНИЯ БЬЁТ ВСЕХ, КТО В НЕЙ', 3.6);
+    setToast('ОНИ МОКРЫЕ. БЕЙ МОЛНИЕЙ В ЛЮБОГО — ТОК ПОЙДЁТ ПО ВОДЕ', 4.2);
     return;
   }
 
@@ -682,11 +739,12 @@ function drainEvents() {
        */
       const found = noteSpell(book, event);
       if (found.signature) {
-        setToast(`НАЙДЕНО ЗАКЛИНАНИЕ: ${found.signature.name}`, 2.6);
+        showFound('НАЙДЕНО ЗАКЛИНАНИЕ', found.signature.name, found.signature.note, '#ffe14d');
         audio.sfx('spot');
         vibrate([20, 40, 20]);
       } else if (found.substance) {
-        setToast(`НОВОЕ ВЕЩЕСТВО: ${found.substance.name}`, 2);
+        showFound('НОВОЕ ВЕЩЕСТВО', found.substance.name,
+          found.substance.note, found.substance.colour);
         audio.sfx('pickup');
       }
     } else if (event.type === 'backfire') {
@@ -753,6 +811,13 @@ function frame(now) {
   const raw = input.read();
 
   if (input.tookKey('KeyB')) toggleTome();
+
+  /* Tab перебирает цели: живых сначала, предметы следом. Без него до
+     бочки с клавиатуры было не добраться — прицел держится за живого. */
+  if (world && scene === 'play' && input.tookKey('Tab')) {
+    locked = cycleTarget(world, locked, world.player.angle);
+    world.locked = locked;
+  }
 
   if (input.tookKey('Escape') || input.tookKey('KeyP')) {
     if (tomeVisible) hideTome();
@@ -828,6 +893,13 @@ function frame(now) {
     toastTimer -= dt;
     if (toastTimer <= 0) ui.toast.hidden = true;
   }
+
+  if (foundTimer > 0) {
+    foundTimer -= dt;
+    if (foundTimer <= 0) ui.found.hidden = true;
+  }
+
+  markCharging();
 
   input.endFrame();
   requestAnimationFrame(frame);

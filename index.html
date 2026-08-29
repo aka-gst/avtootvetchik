@@ -66,14 +66,26 @@
   <button type="button" id="btnAttack" class="pad-key pad-big">ПУСК</button>
 </div>
 
-<!-- Стихии стоят отдельной колонкой слева: набирать их приходится на бегу,
-     и большой палец правой руки в этот момент занят прицелом. -->
-<div id="daemons" class="daemons" aria-hidden="true">
-  <button type="button" id="btn-fire" class="pad-key daemon-key" data-element="fire">ОГ</button>
-  <button type="button" id="btn-water" class="pad-key daemon-key" data-element="water">ВД</button>
-  <button type="button" id="btn-wind" class="pad-key daemon-key" data-element="wind">ВТ</button>
-  <button type="button" id="btn-earth" class="pad-key daemon-key" data-element="earth">ЗМ</button>
-  <button type="button" id="btn-bolt" class="pad-key daemon-key" data-element="bolt">МЛ</button>
+<!-- Пять стихий висят внизу всегда, а не только под пальцем. Набор — это
+     весь язык игры, и держать его в памяти игрок не обязан: пока клавиши
+     на экране, состав можно собирать глазами. Недоступные на этаже
+     показываются притушенными — так видно, что стихий пять, и какие ещё
+     впереди. Кнопки при этом рабочие: пальцем нажимаются они же. -->
+<div id="daemons" class="daemons">
+  <button type="button" id="btn-fire" class="daemon-key" data-element="fire"></button>
+  <button type="button" id="btn-water" class="daemon-key" data-element="water"></button>
+  <button type="button" id="btn-wind" class="daemon-key" data-element="wind"></button>
+  <button type="button" id="btn-earth" class="daemon-key" data-element="earth"></button>
+  <button type="button" id="btn-bolt" class="daemon-key" data-element="bolt"></button>
+</div>
+
+<!-- Находка объявляется крупно и посреди экрана. Новое заклинание —
+     единственное событие в игре, которое стоит того, чтобы отвлечь: всё
+     остальное можно прочитать потом в книге, а это надо заметить сейчас. -->
+<div id="found" class="found" hidden aria-live="polite">
+  <span id="foundKicker" class="found-kicker">НАЙДЕНО</span>
+  <b id="foundName"></b>
+  <i id="foundNote"></i>
 </div>
 
 <div id="ghostMove" class="ghost" hidden><i></i></div>
