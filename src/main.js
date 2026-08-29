@@ -17,6 +17,7 @@ import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
+import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1053,6 +1054,8 @@ window.avto = {
 
 const fromHash = levelFromHash();
 if (fromHash) { level = fromHash; custom = true; }
+
+loadArt();
 
 resize();
 levelCode = encode(level);

@@ -22,6 +22,7 @@ import { TILE, TILE_SIZE, weakTo } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
+import { art, tinted, drawAuto, drawDirFrame, neighbourMask } from './art.js';
 
 const HALF = TILE_SIZE / 2;
 
@@ -48,6 +49,7 @@ export const THEMES = [
     path: '#1f343c', pathAlt: '#243c46',
     seam: '#0b1e1b',
     wall: '#030c0a', wallTop: '#0a1c17', wallEdge: '#3dffb4',
+    wallSheet: 'wall-fence',
     gate: '#2de0ff',
     glass: '#8ff5ff',
     bench: '#33463c', benchEdge: '#ffc95a',
@@ -63,6 +65,7 @@ export const THEMES = [
     path: '#2d2c3c', pathAlt: '#333143',
     seam: '#141320',
     wall: '#0c0a14', wallTop: '#191428', wallEdge: '#c07bff',
+    wallSheet: 'wall-concrete',
     gate: '#c07bff',
     glass: '#c8b6ff',
     bench: '#3d3750', benchEdge: '#ffb347',
@@ -83,10 +86,6 @@ const ROBES = {
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
-
-  const floorLayer = document.createElement('canvas');
-  const floorCtx = floorLayer.getContext('2d');
-  let bakedFor = null;
 
   /* Слой света: ночь кладётся сплошняком, а источники прожигают в ней
      дыры — так тьма получается общей, а не набором пятен. */
@@ -125,51 +124,70 @@ export function createRenderer(canvas) {
      ПОЛ
      ======================================================= */
 
-  function bake(world) {
-    const theme = THEMES[world.level.theme] || THEMES[0];
-    const w = world.w * TILE_SIZE;
-    const h = world.h * TILE_SIZE;
+  /*
+   * Пол рисуется каждый кадр, а не печётся один раз.
+   *
+   * Печь его было дёшево, пока клетка была квадратом краски. С картинкой в
+   * 128 пикселей на клетку печь пришлось бы в разрешении мира — то есть
+   * выбросить всю деталь ровно ради экономии, которой больше нет: видимых
+   * клеток около трёхсот, а не тысяча, и они рисуются за один проход.
+   */
+  function tileRange(world, camX, camY, halfW, halfH) {
+    return {
+      x0: Math.max(0, Math.floor((camX - halfW) / TILE_SIZE) - 1),
+      y0: Math.max(0, Math.floor((camY - halfH) / TILE_SIZE) - 1),
+      x1: Math.min(world.w - 1, Math.ceil((camX + halfW) / TILE_SIZE) + 1),
+      y1: Math.min(world.h - 1, Math.ceil((camY + halfH) / TILE_SIZE) + 1),
+    };
+  }
 
-    if (floorLayer.width !== w || floorLayer.height !== h) {
-      floorLayer.width = w;
-      floorLayer.height = h;
-    }
+  /* Вариант плитки берётся от координат, а не от случая: пол обязан
+     выглядеть одинаково при каждом заходе. */
+  function floorSprite(tile, tx, ty) {
+    const walkway = tile === TILE.DOOR || tile === TILE.EXIT;
+    const family = tile === TILE.RUG ? 'floor-paint'
+      : walkway ? 'floor-asphalt' : 'floor-grass';
+    const count = family === 'floor-paint' ? 2 : 3;
+    return art(`${family}-${((tx * 5 + ty * 11) % count) + 1}`);
+  }
 
-    floorCtx.fillStyle = theme.seam;
-    floorCtx.fillRect(0, 0, w, h);
-
-    for (let ty = 0; ty < world.h; ty += 1) {
-      for (let tx = 0; tx < world.w; tx += 1) {
+  function drawFloor(g, world, theme, range) {
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
         const tile = world.tiles[ty * world.w + tx];
         if (tile === TILE.WALL) continue;
 
         const px = tx * TILE_SIZE;
         const py = ty * TILE_SIZE;
-        const odd = (tx + ty) & 1;
+        const plate = floorSprite(tile, tx, ty);
 
-        /* Дорожка отличается от газона не яркостью, а холодом: по ней
-           видно, где ходят, и куда комната сама ведёт игрока. */
+        if (plate) {
+          g.drawImage(plate, px, py, TILE_SIZE, TILE_SIZE);
+          continue;
+        }
+
+        const odd = (tx + ty) & 1;
         const walkway = tile === TILE.DOOR || tile === TILE.EXIT;
-        floorCtx.fillStyle = walkway
+        g.fillStyle = walkway
           ? (odd ? theme.path : theme.pathAlt)
           : (odd ? theme.ground : theme.groundAlt);
-        floorCtx.fillRect(px, py, TILE_SIZE - 1, TILE_SIZE - 1);
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
         if (tile === TILE.RUG) {
-          floorCtx.fillStyle = theme.rug;
-          floorCtx.fillRect(px + 1, py + 1, TILE_SIZE - 3, TILE_SIZE - 3);
-          floorCtx.strokeStyle = theme.rugEdge;
-          floorCtx.globalAlpha = 0.28;
-          floorCtx.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 8, TILE_SIZE - 8);
-          floorCtx.globalAlpha = 1;
+          g.fillStyle = theme.rug;
+          g.fillRect(px + 1, py + 1, TILE_SIZE - 3, TILE_SIZE - 3);
+          g.strokeStyle = theme.rugEdge;
+          g.globalAlpha = 0.28;
+          g.strokeRect(px + 3.5, py + 3.5, TILE_SIZE - 8, TILE_SIZE - 8);
+          g.globalAlpha = 1;
         }
       }
     }
-
-    bakedFor = world;
   }
 
-  function invalidate() { bakedFor = null; }
+  /* Печь больше нечего, но мир по-прежнему сообщает, что стены изменились.
+     Дверь оставлена, чтобы вызывающему не пришлось об этом узнавать. */
+  function invalidate() {}
 
 
   /* =======================================================
@@ -180,14 +198,28 @@ export function createRenderer(canvas) {
      масса, а не как дырка, и при этом не закрывает никого.
      ======================================================= */
 
-  function drawWalls(g, world, theme) {
-    for (let ty = 0; ty < world.h; ty += 1) {
-      for (let tx = 0; tx < world.w; tx += 1) {
+  function drawWalls(g, world, theme, range) {
+    /* Забор из одной картинки собрать нельзя: у клетки в середине стены и
+       у клетки на её конце разные края. Отсюда набор из шестнадцати. */
+    const sheet = art(theme.wallSheet) || art('wall-concrete');
+    const wallAt = (tile) => tile === TILE.WALL;
+
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
         const tile = world.tiles[ty * world.w + tx];
         if (tile !== TILE.WALL) continue;
 
         const px = tx * TILE_SIZE;
         const py = ty * TILE_SIZE;
+
+        if (sheet) {
+          /* За краем карты стена продолжается: иначе по периметру этажа
+             появлялась бы кайма, которой там нечему быть. */
+          drawAuto(g, sheet, neighbourMask(world, tx, ty, wallAt, true),
+            px, py, TILE_SIZE);
+          if (hasLamp(tx, ty)) drawLamp(g, theme, px, py);
+          continue;
+        }
 
         g.fillStyle = theme.wall;
         g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
@@ -215,34 +247,59 @@ export function createRenderer(canvas) {
         g.stroke();
         g.globalAlpha = 1;
 
-        if (hasLamp(tx, ty)) {
-          g.save();
-          g.globalCompositeOperation = 'lighter';
-          g.fillStyle = theme.wallEdge;
-          g.globalAlpha = 0.45;
-          g.beginPath();
-          g.arc(px + HALF, py + HALF, 7, 0, 6.29);
-          g.fill();
-          g.globalAlpha = 1;
-          g.fillStyle = '#ffffff';
-          g.beginPath();
-          g.arc(px + HALF, py + HALF, 2.4, 0, 6.29);
-          g.fill();
-          g.restore();
-        }
+        if (hasLamp(tx, ty)) drawLamp(g, theme, px, py);
       }
     }
   }
 
-  function drawProps(g, world, theme) {
-    for (let i = 0; i < world.tiles.length; i += 1) {
+  function drawLamp(g, theme, px, py) {
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = theme.wallEdge;
+    g.globalAlpha = 0.45;
+    g.beginPath();
+    g.arc(px + HALF, py + HALF, 7, 0, 6.29);
+    g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.arc(px + HALF, py + HALF, 2.4, 0, 6.29);
+    g.fill();
+    g.restore();
+  }
+
+  /* Какому предмету какая картинка. Всё, чего тут нет, рисуется фигурами. */
+  const PROP_SPRITES = {
+    [TILE.TABLE]: 'prop-bench',
+    [TILE.BARREL]: 'prop-barrel',
+    [TILE.BOULDER]: 'prop-block',
+    [TILE.CRYSTAL]: 'prop-neon',
+    [TILE.HAY]: 'prop-junk',
+  };
+
+  function drawProps(g, world, theme, range) {
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
+      const i = ty * world.w + tx;
       const tile = world.tiles[i];
       if (tile === TILE.FLOOR || tile === TILE.WALL || tile === TILE.RUG) continue;
 
-      const px = (i % world.w) * TILE_SIZE;
-      const py = ((i / world.w) | 0) * TILE_SIZE;
+      const px = tx * TILE_SIZE;
+      const py = ty * TILE_SIZE;
       const cx = px + HALF;
       const cy = py + HALF;
+
+      /*
+       * Предмет с картинкой рисуется картинкой и крупнее клетки: бочка,
+       * куча хлама и остов машины торчат за её края, и обрезать их по
+       * клетке значило бы превратить двор обратно в шахматную доску.
+       */
+      const sprite = art(PROP_SPRITES[tile]);
+      if (sprite) {
+        const size = TILE_SIZE * 1.5;
+        g.drawImage(sprite, cx - size / 2, cy - size / 2, size, size);
+        continue;
+      }
 
       if (tile === TILE.GLASS) {
         g.fillStyle = hexToRgba(theme.glass, 0.16);
@@ -374,6 +431,7 @@ export function createRenderer(canvas) {
       if (tile === TILE.CRYSTAL) {
         /* Кристалл светится сам: перепутать его с камнем нельзя, потому
            что бить в него надо ровно противоположным. */
+        // eslint-disable-next-line no-unused-vars
         const pulse = 0.55 + Math.sin(world.time * 3 + i) * 0.2;
         g.save();
         g.globalCompositeOperation = 'lighter';
@@ -400,6 +458,7 @@ export function createRenderer(canvas) {
         g.closePath();
         g.fill();
       }
+      }
     }
   }
 
@@ -413,16 +472,47 @@ export function createRenderer(canvas) {
      и мягкое пятно об этом соврало бы.
      ======================================================= */
 
-  function drawGround(g, world) {
+  /* Картинка вещества: у каждого своя и полноцветная. Красить их нечем —
+     цвет лужи в игре не меняется, он у неё один и навсегда. */
+  const FIELD_SHEETS = {
+    [GROUND.WATER]: 'field-water',
+    [GROUND.ICE]: 'field-ice',
+    [GROUND.MUD]: 'field-mud',
+    [GROUND.FIRE]: 'field-fire',
+  };
+
+  function drawGround(g, world, range) {
     if (!world.ground) return;
 
-    for (let i = 0; i < world.ground.length; i += 1) {
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
+      const i = ty * world.w + tx;
       const kind = world.ground[i];
       if (!kind) continue;
 
-      const px = (i % world.w) * TILE_SIZE;
-      const py = ((i / world.w) | 0) * TILE_SIZE;
+      const px = tx * TILE_SIZE;
+      const py = ty * TILE_SIZE;
       const fade = Math.min(1, world.groundLife[i] / 2);
+
+      /*
+       * Лужа не квадратная. Где сосед такой же — край гладкий, где нет —
+       * кайма: ровно то, что отличает разлитую воду от плитки, и ровно то,
+       * по чему игрок читает, докуда достанет цепь.
+       */
+      const sheet = art(FIELD_SHEETS[kind]);
+      if (sheet) {
+        const mask = neighbourMask(world, tx, ty,
+          (tile, at) => world.ground[at] === kind, false);
+        g.save();
+        g.globalAlpha = fade;
+        if (kind === GROUND.FIRE) {
+          const caught = Math.min(1, world.groundAge[i] / FIRE_CATCH);
+          g.globalAlpha = fade * (0.45 + caught * 0.55);
+        }
+        drawAuto(g, sheet, mask, px, py, TILE_SIZE);
+        g.restore();
+        continue;
+      }
 
       if (kind === GROUND.FIRE) {
         /*
@@ -493,6 +583,7 @@ export function createRenderer(canvas) {
         g.fillStyle = `rgba(48,40,22,${0.78 * fade})`;
         g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
       }
+      }
     }
   }
 
@@ -516,17 +607,65 @@ export function createRenderer(canvas) {
      требует ни одного пикселя мимики.
      ======================================================= */
 
+  /*
+   * Лист мага под действие. Замах и каст важнее ходьбы: по ним игрок
+   * понимает, что сейчас прилетит, и подменять их шагом значило бы прятать
+   * единственное предупреждение.
+   */
+  function sheetFor(o) {
+    if (!o.sheet) return null;
+    if (o.sheet === 'corpse') return art('mage-corpse');
+
+    if ((o.cast || 0) > 0.05 || (o.swing || 0) > 0.05) {
+      const strike = art(`mage-${o.sheet}-cast`) || art(`mage-${o.sheet}-swing`);
+      if (strike) return strike;
+    }
+    if (o.moving) {
+      const walk = art(`mage-${o.sheet}-walk`);
+      if (walk) return walk;
+    }
+    return art(`mage-${o.sheet}-idle`);
+  }
+
+  /* На экране тело — около двадцати шести пикселей; кадр рисуется крупнее,
+     потому что посох и ирокез выходят за пределы фигуры. */
+  const MAGE_SIZE = 46;
+
   function mage(g, o) {
     const { x, y } = o;
     const palette = o.palette;
     const dx = Math.cos(o.angle);
     const dy = Math.sin(o.angle);
 
-    /* Тень под фигурой — единственное, что подделывает объём сверху. */
+    /* Тень под фигурой — единственное, что подделывает объём сверху.
+       Рисует её игра, а не картинка: у восьми направлений тень одна. */
     g.fillStyle = 'rgba(0,0,0,.4)';
     g.beginPath();
     g.ellipse(x + 1.5, y + 2, BODY + 3, BODY + 2, 0, 0, 6.29);
     g.fill();
+
+    /*
+     * Спрайт не вращается: у него восемь готовых сторон. Вращаемая фигура
+     * не может иметь ни света сверху, ни ирокеза, ни асимметрии — а ровно
+     * из этого и состоит вид законченной игры.
+     */
+    const sheet = sheetFor(o);
+    if (sheet) {
+      drawDirFrame(g, sheet, o.angle, Math.floor((o.phase || 0) * 2), x, y, MAGE_SIZE);
+
+      const heat = (o.charging ? 1 : 0) + (o.cast || 0);
+      if (heat > 0.05 && o.glow) {
+        g.save();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = o.glow;
+        g.globalAlpha = Math.min(0.8, 0.3 * heat);
+        g.beginPath();
+        g.arc(x + dx * 15, y + dy * 15, 5 + heat * 3, 0, 6.29);
+        g.fill();
+        g.restore();
+      }
+      return;
+    }
 
     if (o.downed) {
       g.fillStyle = palette.robe;
@@ -693,7 +832,7 @@ export function createRenderer(canvas) {
       const jitter = corpse.twitch > 0 ? (Math.random() - 0.5) * corpse.twitch * 2 : 0;
       mage(g, {
         x: corpse.x + jitter, y: corpse.y, angle: corpse.angle,
-        palette: ROBES.dead, phase: 0, downed: true,
+        palette: ROBES.dead, sheet: 'corpse', phase: 0, downed: true,
       });
     }
   }
@@ -723,6 +862,9 @@ export function createRenderer(canvas) {
       mage(g, {
         x: enemy.x, y: enemy.y, angle: enemy.angle,
         palette: ROBES[enemy.kind] || ROBES.thug,
+        sheet: enemy.kind === 'caster' ? 'sparker'
+          : enemy.kind === 'carrier' ? 'warden' : 'punk',
+        moving: Math.hypot(enemy.vx, enemy.vy) > 12,
         phase: enemy.step * 0.35,
         swing: enemy.swing || 0,
         cast: enemy.windup ? Math.min(1, enemy.windup * 3) : 0,
@@ -770,6 +912,8 @@ export function createRenderer(canvas) {
     mage(g, {
       x: player.x, y: player.y, angle: player.angle,
       palette: ROBES.player,
+      sheet: 'player',
+      moving: Math.hypot(player.vx, player.vy) > 12,
       phase: player.step * 0.35,
       cast: player.windup > 0 ? 1 : (player.cooldown > 0 ? player.cooldown * 3 : 0),
       charging: player.chargeLeft > 0,
@@ -1117,7 +1261,7 @@ export function createRenderer(canvas) {
   }
 
   function draw(world, view) {
-    if (bakedFor !== world || world.rebake) { bake(world); world.rebake = false; }
+    world.rebake = false;
 
     const theme = THEMES[world.level.theme] || THEMES[0];
     const zoom = zoomFor();
@@ -1146,13 +1290,17 @@ export function createRenderer(canvas) {
     ctx.scale(zoom * punch, zoom * punch);
     ctx.translate(-camX + shakeX, -camY + shakeY);
 
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(floorLayer, 0, 0);
+    /* Картинки приходят вчетверо крупнее клетки и уменьшаются: сглаживание
+       тут не мылит, а наоборот — без него уменьшение рвёт деталь. */
+    ctx.imageSmoothingEnabled = true;
 
-    drawGround(ctx, world);
+    const range = tileRange(world, camX, camY, halfW, halfH);
+
+    drawFloor(ctx, world, theme, range);
+    drawGround(ctx, world, range);
     drawDecals(ctx, world);
     drawCorpses(ctx, world);
-    drawProps(ctx, world, theme);
+    drawProps(ctx, world, theme, range);
     drawEnemies(ctx, world);
     drawLock(ctx, world);
     drawPlayer(ctx, world);
@@ -1160,7 +1308,7 @@ export function createRenderer(canvas) {
     drawBlasts(ctx, world);
     drawPops(ctx, world);
     drawParticles(ctx, world);
-    drawWalls(ctx, world, theme);
+    drawWalls(ctx, world, theme, range);
     drawClouds(ctx, world);
 
     ctx.restore();
