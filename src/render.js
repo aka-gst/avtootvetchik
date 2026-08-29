@@ -114,9 +114,25 @@ export function createRenderer(canvas) {
    * игрок видит, — а от этого зависит, с какого расстояния враги
    * открывают огонь. Иначе на телефоне убивают из-за края кадра.
    */
-  function zoomFor() {
+  /*
+   * Масштаб от короткой стороны — и от того, влезает ли этаж целиком.
+   *
+   * Прежняя формула смотрела только на экран, и на телефоне выходило
+   * издевательство: этаж в одиннадцать клеток высотой занимал треть
+   * вытянутого экрана, а остальное было чёрным. Теперь масштаб доводится
+   * до того, при котором мир закрывает холст: чёрных полей не остаётся,
+   * а фигуры делаются крупнее ровно там, где экран меньше.
+   *
+   * Потолок нужен, чтобы на совсем маленьком этаже камера не уткнулась
+   * носом в две клетки.
+   */
+  function zoomFor(world) {
     const short = Math.min(viewW, viewH);
-    return Math.max(1.05, Math.min(2, short / 520));
+    const base = Math.max(1.05, Math.min(2, short / 520));
+    if (!world) return base;
+
+    const fill = Math.max(viewW / (world.w * TILE_SIZE), viewH / (world.h * TILE_SIZE));
+    return Math.min(2.6, Math.max(base, fill));
   }
 
 
@@ -1264,7 +1280,7 @@ export function createRenderer(canvas) {
     world.rebake = false;
 
     const theme = THEMES[world.level.theme] || THEMES[0];
-    const zoom = zoomFor();
+    const zoom = zoomFor(world);
     const halfW = viewW / (2 * zoom);
     const halfH = viewH / (2 * zoom);
 

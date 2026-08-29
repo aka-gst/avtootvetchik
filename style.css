@@ -423,12 +423,138 @@ html, body {
   transform: scale(.94);
 }
 
-/* Кнопка удара нужна только пальцу: мышь получает тот же ввод с клавиатуры.
-   Панель стихий видна всем — она же и подсказка по клавишам. */
-@media (pointer: coarse) {
-  .pad { display: grid; }
-  .daemon-key { width: 58px; padding: 10px 4px 9px; }
-  .toast { bottom: max(30vh, 190px); }
+/* =========================================================
+   ТЕЛЕФОН
+   =========================================================
+   Экран телефона вытянут, а этаж — широкий и низкий. Если
+   отдать холсту всю высоту, мир займёт треть, остальное
+   станет чёрным, а кнопки уедут к нижней кромке, куда палец
+   дотягивается хуже всего.
+   Поэтому холст занимает верхние две трети, а нижняя треть
+   отдана управлению целиком. Чёрных полей не остаётся, и
+   всё, что нажимают, лежит под большими пальцами.
+   ========================================================= */
+
+@media (pointer: coarse) and (orientation: portrait) {
+  #screen {
+    inset: 0 0 auto 0;
+    height: 64%;
+  }
+
+  /* Кнопка выпуска — под правым большим пальцем, крупная и круглая:
+     по ней бьют не глядя, и промах стоит жизни. */
+  .pad {
+    top: auto;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    display: grid;
+    transform: none;
+  }
+
+  .pad-big {
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    font: 900 18px var(--mono);
+  }
+
+  /* Стихии — ряд под холстом, во всю ширину и крупно. */
+  .daemons {
+    bottom: auto;
+    top: calc(64% + 14px);
+    gap: 6px;
+  }
+
+  .daemon-key {
+    width: 66px;
+    padding: 12px 4px 10px;
+  }
+
+  .daemon-key b { font-size: 15px; }
+  .daemon-key i { font-size: 9px; }
+
+  /*
+   * Клавиша на кнопке — подсказка для клавиатуры, и на телефоне она врёт:
+   * никакой стрелки влево там нет. Остаётся имя стихии и цвет.
+   */
+  .daemon-key b { display: none; }
+  .daemon-key i { font-size: 11px; }
+
+  /*
+   * Всё, что не поле и не кнопки, уходит вниз, в пустой левый угол полосы.
+   * Наверху экрана каждый пиксель — игровой, и закрывать его счётом
+   * недопустимо: именно там стоит игрок.
+   */
+  .hud {
+    top: auto;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    right: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    max-width: 55vw;
+    gap: 6px;
+  }
+
+  .hud-stack { display: none; }
+
+  .mute,
+  .mute-second,
+  .game-home-menu {
+    top: auto;
+    right: auto;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 92px);
+  }
+
+  .mute-second { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 56px); }
+  .game-home-menu { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 128px); }
+
+
+  .toast { bottom: calc(36% + 14px); }
+  .found { top: 30%; }
+}
+
+/*
+ * Телефон боком. Полоса снизу тут не нужна и вредна: высоты и так мало,
+ * отдавать её под кнопки — значит смотреть на мир в щёлку. Поле занимает
+ * весь экран, а управление ложится поверх, по углам, где и лежат большие
+ * пальцы.
+ */
+@media (pointer: coarse) and (orientation: landscape) {
+  .pad {
+    top: auto;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    display: grid;
+    transform: none;
+  }
+
+  .pad-big {
+    width: 104px;
+    height: 104px;
+    border-radius: 50%;
+    font: 900 15px var(--mono);
+  }
+
+  /* Стихии — столбиком слева, подальше от того угла, где ведёт палец. */
+  .daemons {
+    left: max(14px, env(safe-area-inset-left));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    flex-direction: column-reverse;
+    transform: none;
+    gap: 5px;
+  }
+
+  .daemon-key {
+    width: 92px;
+    padding: 7px 4px 6px;
+    background: #0a0f10cc;
+  }
+
+  .daemon-key b { display: none; }
+
+  .toast { bottom: 22vh; }
 }
 
 

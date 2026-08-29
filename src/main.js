@@ -266,13 +266,20 @@ function setToast(text, seconds = 2) {
  * стихий на этаже, где их две, — верный способ научить человека жать
  * кнопки, которые молчат.
  */
+/* Пальцем играют или клавишами — от этого зависит каждая подсказка в игре.
+   Одна дверь на все места, где это надо знать. */
+function byTouch() {
+  return input.isTouch() || matchMedia('(pointer: coarse)').matches;
+}
+
 function controlsHint() {
   const given = (level.elements || ELEMENT_ORDER)
     .map((id) => `${ELEMENTS[id].key} ${ELEMENTS[id].name}`)
     .join(' ');
 
-  return input.isTouch() || matchMedia('(pointer: coarse)').matches
-    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ СТИХИИ, БОЛЬШАЯ ВЫПУСКАЕТ.'
+  return byTouch()
+    ? 'ЛЕВЫЙ ПАЛЕЦ ПО ПОЛЮ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ И БЬЁТ САМ. '
+      + 'КНОПКИ ВНИЗУ НАБИРАЮТ СТИХИИ, БОЛЬШАЯ ВЫПУСКАЕТ.'
     : `WASD — ИДТИ. СТИХИИ: ${given}. ПРОБЕЛ ВЫПУСКАЕТ, Q СБРАСЫВАЕТ. `
       + 'TAB МЕНЯЕТ ЦЕЛЬ — ИМ ЖЕ НАВОДЯТСЯ НА БОЧКИ И КАМНИ. '
       + 'СОСТАВ РЕШАЕТ, ЧТО ВЫЛЕТИТ, ПОРЯДОК — КАКОЙ ФОРМЫ. B — КНИГА, R — ЗАНОВО.';
@@ -538,10 +545,12 @@ function tutorStart() {
   tutorStep = level.tutorial ? 1 : 0;
   /* Клавиши берутся из самих стихий: раскладка уже переезжала, и вшитый
      в текст слэш пережил бы переезд и врал бы игроку. */
-  if (tutorStep) {
-    setToast(`НАБЕРИ ${ELEMENTS.fire.key} ОГОНЬ, ЖМИ ПРОБЕЛ. `
-      + `${ELEMENTS.bolt.key} — МОЛНИЯ`, 3.6);
-  }
+  if (!tutorStep) return;
+
+  setToast(byTouch()
+    ? 'ЖМИ ОГОНЬ ВНИЗУ, ПОТОМ ПУСК'
+    : `НАБЕРИ ${ELEMENTS.fire.key} ОГОНЬ, ЖМИ ПРОБЕЛ. ${ELEMENTS.bolt.key} — МОЛНИЯ`,
+  3.6);
 }
 
 function tutorFeed(event) {
@@ -549,7 +558,9 @@ function tutorFeed(event) {
 
   if (tutorStep === 1 && event.type === 'kill') {
     tutorStep = 2;
-    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ. TAB НАВЕДЁТ — БЕЙ МОЛНИЕЙ', 4.2);
+    setToast(byTouch()
+      ? 'ВПЕРЕДИ БОЧКА С ВОДОЙ — БЕЙ В НЕЁ МОЛНИЕЙ'
+      : 'ВПЕРЕДИ БОЧКА С ВОДОЙ. TAB НАВЕДЁТ — БЕЙ МОЛНИЕЙ', 4.2);
     return;
   }
 
@@ -941,8 +952,13 @@ function toggleMute() {
  * окно какое-то время сообщает нули.
  */
 function resize() {
-  const width = window.innerWidth || document.documentElement.clientWidth;
-  const height = window.innerHeight || document.documentElement.clientHeight;
+  /*
+   * Размер берётся у самого холста, а не у окна. На телефоне холст занимает
+   * не весь экран: снизу отведена полоса под кнопки, и мир, нарисованный по
+   * высоте окна, уезжал бы под них.
+   */
+  const width = canvas.clientWidth || window.innerWidth || document.documentElement.clientWidth;
+  const height = canvas.clientHeight || window.innerHeight || document.documentElement.clientHeight;
   if (width < 1 || height < 1) return;
   /* Повтор ничего не стоит: холст сам отбросит вызов, если размер тот же. */
   renderer.resize(width, height, window.devicePixelRatio || 1);
@@ -1017,6 +1033,9 @@ $('copyCode').addEventListener('click', async () => {
     document.execCommand('copy');
   }
 });
+
+/* На телефоне клавиши B нет — и обещать её на кнопке незачем. */
+if (byTouch()) ui.tomeOpen.textContent = 'КНИГА';
 
 ui.tomeOpen.addEventListener('click', () => { toggleTome(); ui.tomeOpen.blur(); });
 ui.tomeClose.addEventListener('click', hideTome);
