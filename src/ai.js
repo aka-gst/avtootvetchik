@@ -13,7 +13,7 @@
  *   down   лежит после удара кулаком или брошенной битой
  */
 
-import { TILE_SIZE, BODY, WEAPONS, angleDelta, turnToward, clamp, hasSight, emitNoise, tileIndex } from './world.js';
+import { TILE_SIZE, BODY, WEAPONS, angleDelta, turnToward, clamp, hasSight, hasShot, emitNoise, tileIndex } from './world.js';
 import { blocksMove } from './level.js';
 import { burningIndex } from './field.js';
 
@@ -218,7 +218,13 @@ export function thinkEnemy(world, enemy, dt, speed) {
          * кадра не будет нигде.
          */
         const reach = Math.min(330, world.viewRadius || 260);
-        const shootable = visible && dist < reach && Math.abs(angleDelta(enemy.angle, toPlayer)) < 0.2;
+
+        /* Стрелять можно только туда, куда снаряд долетит: мебель видно
+           насквозь, но она держит выстрел, и стол между ними — это повод
+           обойти, а не повод расстреливать стол. */
+        const shootable = visible && dist < reach
+          && hasShot(world, enemy.x, enemy.y, player.x, player.y)
+          && Math.abs(angleDelta(enemy.angle, toPlayer)) < 0.2;
 
         /* Стрелок держит дистанцию: вплотную он беспомощен, и это шанс игрока. */
         if (dist < 90) {

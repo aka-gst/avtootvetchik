@@ -253,10 +253,30 @@ function setToast(text, seconds = 2) {
   toastTimer = seconds;
 }
 
+/*
+ * Подсказка перечисляет только то, что этаж даёт. Перечислять все пять
+ * стихий на этаже, где их две, — верный способ научить человека жать
+ * кнопки, которые молчат.
+ */
 function controlsHint() {
+  const given = (level.elements || ELEMENT_ORDER)
+    .map((id) => `${ELEMENTS[id].key} ${ELEMENTS[id].name}`)
+    .join(' ');
+
   return input.isTouch() || matchMedia('(pointer: coarse)').matches
-    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ ДЕМОНА, БОЛЬШАЯ ЕГО ВЫПУСКАЕТ.'
-    : 'WASD — ИДТИ. СТИХИИ: ← ОГОНЬ ↑ ВОДА → ВЕТЕР ↓ ЗЕМЛЯ / МОЛНИЯ. ПРОБЕЛ ВЫПУСКАЕТ, Q СБРАСЫВАЕТ. СОСТАВ РЕШАЕТ, ЧТО ВЫЛЕТИТ, ПОРЯДОК — КАКОЙ ФОРМЫ. R — ЗАНОВО.';
+    ? 'ЛЕВЫЙ ПАЛЕЦ ВЕДЁТ, ПРАВЫЙ ЦЕЛИТ. ЦВЕТНЫЕ КНОПКИ НАБИРАЮТ СТИХИИ, БОЛЬШАЯ ВЫПУСКАЕТ.'
+    : `WASD — ИДТИ. СТИХИИ: ${given}. ПРОБЕЛ ВЫПУСКАЕТ, Q СБРАСЫВАЕТ. `
+      + 'СОСТАВ РЕШАЕТ, ЧТО ВЫЛЕТИТ, ПОРЯДОК — КАКОЙ ФОРМЫ. B — КНИГА, R — ЗАНОВО.';
+}
+
+/* Кнопки стихий, которых этаж не даёт, не показываются: недоступная
+   кнопка на экране — это обещание, которого игра не держит. */
+function syncElementButtons() {
+  const given = level.elements || ELEMENT_ORDER;
+  for (const id of ELEMENT_ORDER) {
+    const button = $(`btn-${id}`);
+    if (button) button.hidden = !given.includes(id);
+  }
 }
 
 
@@ -270,6 +290,7 @@ function startLevel(next, { silent } = {}) {
   if (changed || !levelCode) levelCode = encode(level);
 
   world = createWorld(level);
+  syncElementButtons();
   view = { x: world.player.x, y: world.player.y };
   renderer.invalidate();
   scene = 'play';
@@ -632,6 +653,8 @@ function drainEvents() {
          надо ровно один раз и ровно тогда, а не в подсказках перед боем. */
       setToast('ГОРИШЬ — В ВОДУ ИЛИ В ГРЯЗЬ', 1.4);
       vibrate(20);
+    } else if (event.type === 'locked') {
+      setToast(`${ELEMENTS[event.element].name} — НЕ НА ЭТОМ ЭТАЖЕ`, 1.4);
     } else if (event.type === 'shocked-self') {
       setToast('СВОЯ ЖЕ ЛУЖА ПОД ТОКОМ', 2.4);
     } else if (event.type === 'chain' && event.size > 1) {
@@ -897,6 +920,7 @@ resize();
 levelCode = encode(level);
 world = createWorld(level);
 score = createScore(level, 0);
+syncElementButtons();
 view = { x: world.player.x, y: world.player.y };
 updateHud(true);
 callScreen();

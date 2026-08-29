@@ -14,9 +14,9 @@
  */
 
 import { CAMPAIGN } from '../src/levels.js';
-import { createWorld, update, TILE_SIZE, hasSight, tileIndex } from '../src/world.js';
+import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex } from '../src/world.js';
 import { buildFlowField } from '../src/ai.js';
-import { blocksMove } from '../src/level.js';
+import { blocksMove, decode, encode, elementMask, elementsFromMask } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
@@ -51,9 +51,17 @@ function nearest(world) {
   return { enemy: best, dist };
 }
 
-/* Набрать очередь и выпустить её: ровно то, что делает игрок руками. */
+/*
+ * Набрать очередь и выпустить её: ровно то, что делает игрок руками.
+ *
+ * Стихии этажа тут выдаются насильно: этот прогон проверяет правила магии,
+ * а не порядок их открытия — он проверяется отдельно, ниже.
+ */
 function cast(world, stack, angle) {
   const player = world.player;
+  for (const element of stack) {
+    if (!world.elements.includes(element)) world.elements.push(element);
+  }
   for (const element of stack) {
     update(world, DT, { ...idle, aimAngle: angle, charge: element });
     while (player.chargeLeft > 0) update(world, DT, { ...idle, aimAngle: angle });
@@ -128,9 +136,8 @@ function cast(world, stack, angle) {
     `было ${before | 0} стало ${after | 0}, игрок ${world.player.alive ? 'жив' : 'убит'}`);
 }
 
-/* --- E. Полная зачистка открывает выход --- */
+/* --- E. Полная зачистка открывает выход. Проходится каждый этаж --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
 
   /* Бот ходит по той же волне, что и враги: иначе он упирается в стену и
      тест меряет не игру, а тупость бота. */
@@ -157,22 +164,29 @@ function cast(world, stack, angle) {
     return { x: Math.cos(angle), y: Math.sin(angle) };
   }
 
+  function play(floor) {
+  const world = createWorld(floor);
   run(world, 150, (w) => {
     const player = w.player;
     const { enemy, dist } = nearest(w);
 
     if (enemy) {
       const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
-      const clear = hasSight(w, player.x, player.y, enemy.x, enemy.y);
+      /* Видно — не значит попадёшь: сквозь мебель взгляд идёт, а снаряд
+         нет. Бот, стрелявший «по видимости», всю попытку расстреливал
+         стол и не проходил половину этажей. */
+      const clear = hasShot(w, player.x, player.y, enemy.x, enemy.y)
+        && hasSight(w, player.x, player.y, enemy.x, enemy.y);
 
       /*
        * Стреляем одиночными и не своей стихией: бот обязан играть по тем
-       * же правилам, иначе он проверяет не игру, а поддавки.
+       * же правилам, иначе он проверяет не игру, а поддавки. Стихии берёт
+       * только те, что даёт этаж, — как и живой игрок.
        */
       if (clear && dist < 260) {
         if (player.stack.length) return { ...idle, aimAngle: angle, attack: true };
         if (player.chargeLeft <= 0) {
-          const element = ELEMENT_ORDER.find((candidate) => candidate !== enemy.resist);
+          const element = w.elements.find((candidate) => candidate !== enemy.resist);
           return { ...idle, aimAngle: angle, charge: element };
         }
         return { ...idle, aimAngle: angle };
@@ -191,12 +205,21 @@ function cast(world, stack, angle) {
     const step = stepToward(w, exit);
     return { ...idle, moveX: step.x, moveY: step.y };
   });
+  return world;
+  }
 
-  check('бот зачистил этаж демонами', world.kills === world.total,
-    `${world.kills}/${world.total}, игрок ${world.player.alive ? 'жив' : 'убит'}`);
-  check('выход открылся после зачистки', world.exitOpen || !world.player.alive);
-  check('дойдя до выхода, этаж засчитан', world.state === 'clear' || !world.player.alive,
-    `состояние ${world.state}`);
+  /*
+   * Проходится каждый встроенный этаж, а не только первый. Этаж, который
+   * нельзя пройти, — это не «сложно», это сломано, и увидеть такое на
+   * глаз можно только сыграв все четыре подряд.
+   */
+  for (const floor of CAMPAIGN) {
+    const world = play(floor);
+    check(`«${floor.title}»: бот зачистил этаж`, world.kills === world.total,
+      `${world.kills}/${world.total}, игрок ${world.player.alive ? 'жив' : 'убит'}`);
+    check(`«${floor.title}»: дойдя до выхода, этаж засчитан`,
+      world.state === 'clear' || !world.player.alive, `состояние ${world.state}`);
+  }
 }
 
 /* --- E2. Счёт: цепочка и ранг --- */
@@ -451,6 +474,8 @@ function cast(world, stack, angle) {
    */
   const clearTime = (count, style) => {
     const world = createWorld(CAMPAIGN[0]);
+    /* Меряем цену форм, а не выдачу стихий: даём все. */
+    world.elements = [...ELEMENT_ORDER];
     const player = world.player;
     const marked = [];
 
@@ -709,6 +734,93 @@ function cast(world, stack, angle) {
   check('хватка тянет тех, до кого выдох не достаёт',
     far.alive && far.x - grip.player.x < before - 70,
     `${Math.round(before)} → ${Math.round(far.x - grip.player.x)}`);
+}
+
+
+/* --- I. Этаж выдаёт стихии сам --- */
+{
+  check('первый этаж даёт две стихии, последний — все пять',
+    CAMPAIGN[0].elements.length === 2 && CAMPAIGN[CAMPAIGN.length - 1].elements.length === 5,
+    CAMPAIGN.map((level) => level.elements.length).join('→'));
+
+  check('каждый следующий этаж не отнимает прежнего',
+    CAMPAIGN.every((level, i) =>
+      i === 0 || CAMPAIGN[i - 1].elements.every((element) => level.elements.includes(element))));
+
+  const world = createWorld(CAMPAIGN[0]);
+  const player = world.player;
+
+  update(world, DT, { ...idle, charge: 'bolt' });
+  check('стихии, которой этаж не даёт, у игрока нет',
+    player.stack.length === 0 && player.chargeLeft <= 0);
+  check('и он об этом узнаёт, а не думает, что кнопка сломалась',
+    world.events.some((event) => event.type === 'locked' && event.element === 'bolt'));
+
+  update(world, DT, { ...idle, charge: 'water' });
+  check('своя стихия набирается как обычно', player.chargeLeft > 0);
+
+  /*
+   * Дальнобойные швыряются только тем, что есть на этаже: иначе на первом
+   * этаже в игрока летит молния, которой он ещё не видел, и цвет снаряда
+   * перестаёт быть инструкцией «этим его не бей».
+   */
+  const strange = world.enemies.filter((enemy) => enemy.element
+    && !CAMPAIGN[0].elements.includes(enemy.element));
+  check('и враги колдуют только стихиями этажа', strange.length === 0,
+    strange.map((enemy) => enemy.element).join(','));
+}
+
+
+/* --- J. Видно — не значит попадёшь --- */
+{
+  const world = createWorld(CAMPAIGN[0]);
+
+  /* Мебель на этаже есть всегда: находим стол и становимся по обе стороны. */
+  let table = -1;
+  for (let i = 0; i < world.tiles.length; i += 1) if (world.tiles[i] === 5) { table = i; break; }
+  const tx = ((table % world.w) + 0.5) * TILE_SIZE;
+  const ty = ((table / world.w | 0) + 0.5) * TILE_SIZE;
+
+  check('через мебель видно', hasSight(world, tx - TILE_SIZE, ty, tx + TILE_SIZE, ty));
+  check('но не простреливается', !hasShot(world, tx - TILE_SIZE, ty, tx + TILE_SIZE, ty));
+  check('по чистому полу — и то и другое',
+    hasSight(world, tx - TILE_SIZE, ty, tx - TILE_SIZE * 2, ty)
+    && hasShot(world, tx - TILE_SIZE, ty, tx - TILE_SIZE * 2, ty));
+}
+
+
+/* --- K. Формат: старый код читается новой игрой --- */
+{
+  /*
+   * Фикстура, а не пересчёт: строка собрана отдельной реализацией
+   * формата версии 1 — до того, как у этажа появились свои стихии.
+   * Она заморожена навсегда. Если однажды перестанет читаться, значит
+   * сломались все коды, которые люди успели записать и разослать.
+   */
+  const V1 = 'EQMACDiKAiCAYARQIBggUA';
+
+  let old = null;
+  try { old = decode(V1); } catch (error) { old = error.message; }
+
+  check('код версии 1 всё ещё открывается',
+    old && old.w === 5 && old.h === 4 && old.entities.length === 1,
+    typeof old === 'string' ? old : `${old.w}x${old.h}`);
+  check('и получает те три стихии, при которых был записан',
+    Array.isArray(old.elements) && old.elements.join() === 'fire,water,wind',
+    String(old && old.elements));
+
+  /* Маска: свой порядок битов, заморожен наравне с номерами тайлов. */
+  check('маска стихий ходит туда-обратно',
+    elementsFromMask(elementMask(['water', 'bolt'])).join() === 'water,bolt');
+  check('пустая маска читается как старый код',
+    elementsFromMask(0).join() === 'fire,water,wind');
+
+  for (const floor of CAMPAIGN) {
+    const back = decode(encode(floor));
+    check(`«${floor.title}»: код несёт свои стихии`,
+      back.elements.join() === floor.elements.join(),
+      `${back.elements.join()} против ${floor.elements.join()}`);
+  }
 }
 
 

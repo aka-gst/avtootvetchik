@@ -12,6 +12,7 @@
  * Раскладка потока (биты идут подряд, старшим вперёд):
  *
  *   версия        4    формат может расти, старые коды остаются читаемыми
+ *   стихии        5    какие стихии даёт этаж (только с версии 2)
  *   ширина-1      6    1..64
  *   высота-1      6
  *   тема          3    палитра и обстановка
@@ -28,7 +29,32 @@
  * можно, менять номера существующих — нет, иначе чужие коды поедут.
  */
 
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
+
+/*
+ * Порядок битов маски стихий заморожен навсегда — как номера тайлов.
+ * Он намеренно свой, а не взятый из magic.js: там порядок может меняться
+ * ради книги и подсказок, а здесь его изменение сломало бы чужие коды.
+ *
+ * Версия 1 маски не знала: её коды писались, когда стихий было три, и
+ * читаются как «огонь, вода, ветер».
+ */
+export const ELEMENT_BITS = ['fire', 'water', 'wind', 'earth', 'bolt'];
+const V1_ELEMENTS = ['fire', 'water', 'wind'];
+
+export function elementMask(elements) {
+  let mask = 0;
+  for (let i = 0; i < ELEMENT_BITS.length; i += 1) {
+    if (elements.includes(ELEMENT_BITS[i])) mask |= 1 << i;
+  }
+  return mask;
+}
+
+export function elementsFromMask(mask) {
+  const out = ELEMENT_BITS.filter((id, i) => mask & (1 << i));
+  /* Этаж без единой стихии пройти нельзя — считаем такой код старым. */
+  return out.length ? out : V1_ELEMENTS;
+}
 
 /*
  * Размер клетки живёт здесь, а не в мире: на него смотрят и поле, и
@@ -188,6 +214,7 @@ export function encode(level) {
   const bits = writer();
 
   bits.write(FORMAT_VERSION, 4);
+  bits.write(elementMask(level.elements || ELEMENT_BITS), 5);
   bits.write(level.w - 1, 6);
   bits.write(level.h - 1, 6);
   bits.write(level.theme || 0, 3);
@@ -237,9 +264,12 @@ export function decode(code) {
 
   const bits = reader(payload);
   const version = bits.read(4);
-  if (version !== FORMAT_VERSION) {
+  if (version < 1 || version > FORMAT_VERSION) {
     throw new Error(`код версии ${version}, а игра понимает ${FORMAT_VERSION}`);
   }
+
+  /* Старый код читается новой игрой: в этом весь смысл поля версии. */
+  const elements = version >= 2 ? elementsFromMask(bits.read(5)) : V1_ELEMENTS;
 
   const w = bits.read(6) + 1;
   const h = bits.read(6) + 1;
@@ -266,7 +296,7 @@ export function decode(code) {
     });
   }
 
-  return { w, h, theme, track, spawn, tiles, entities };
+  return { w, h, theme, track, spawn, tiles, entities, elements };
 }
 
 
@@ -317,6 +347,9 @@ export function fromAscii(rows, meta = {}) {
     w, h, tiles, entities, spawn,
     theme: meta.theme || 0,
     track: meta.track || 0,
+    /* Этаж, ничего не сказавший про стихии, даёт все: молчание автора
+       не должно означать запрет. Кампания говорит про каждый этаж. */
+    elements: meta.elements || [...ELEMENT_BITS],
     title: meta.title || '',
     call: meta.call || '',
   };

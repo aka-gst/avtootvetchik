@@ -153,6 +153,23 @@ export function hasSight(world, ax, ay, bx, by) {
   return !cloudsBlock(world, ax, ay, bx, by);
 }
 
+/*
+ * Видно — не значит попадёшь. Мебель низкая: взгляд идёт поверх, снаряд
+ * вязнет. Без отдельной проверки колдун за столом всю попытку целится в
+ * игрока и расстреливает стол, потому что «видит» его прекрасно, — и это
+ * не хитрость, а тупик, из которого он сам не выходит.
+ */
+export function hasShot(world, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const steps = Math.ceil(Math.hypot(dx, dy) / (TILE_SIZE * 0.4));
+  for (let i = 1; i < steps; i += 1) {
+    const t = i / steps;
+    if (blocksShot(tileAt(world, ax + dx * t, ay + dy * t))) return false;
+  }
+  return true;
+}
+
 
 /* =========================================================
    ЗВУК КАК ИГРОВАЯ СУЩНОСТЬ
@@ -239,6 +256,10 @@ export function createWorld(level) {
     h: level.h,
     tiles: Uint8Array.from(level.tiles),
 
+    /* Какие стихии даёт этаж. Не свойство игрока, а свойство комнаты:
+       чужой этаж по ссылке обязан открыться так же, как у автора. */
+    elements: level.elements && level.elements.length ? [...level.elements] : [...ELEMENT_ORDER],
+
     player: {
       x: level.spawn.x * TILE_SIZE + TILE_SIZE / 2,
       y: level.spawn.y * TILE_SIZE + TILE_SIZE / 2,
@@ -320,7 +341,13 @@ export function createWorld(level) {
        * должен выглядеть одинаково при каждом заходе, иначе выученная
        * комната перестаёт быть выученной.
        */
-      const element = ELEMENT_ORDER[(entity.x + entity.y * 2) % ELEMENT_ORDER.length];
+      /*
+       * Стихия дальнобойного берётся из стихий этажа, а не из всех пяти:
+       * иначе на первом этаже в игрока летит молния, которой он ещё не
+       * видел, и цвет снаряда перестаёт быть инструкцией.
+       */
+      const palette = world.elements;
+      const element = palette[(entity.x + entity.y * 2) % palette.length];
 
       world.enemies.push({
         kind: entity.type === 0 ? 'thug' : 'caster',
@@ -1073,6 +1100,13 @@ function updatePlayer(world, dt, intent) {
     player.charging = null;
     player.chargeLeft = 0;
     world.events.push({ type: 'dump' });
+  }
+
+  /* Стихии, которой этаж не даёт, у игрока просто нет. Молча — плохо:
+     он решит, что кнопка не сработала, а не что стихия не его. */
+  if (intent.charge && !world.elements.includes(intent.charge)) {
+    world.events.push({ type: 'locked', element: intent.charge });
+    intent.charge = null;
   }
 
   if (intent.charge && player.stack.length < STACK_LIMIT && player.chargeLeft <= 0) {
