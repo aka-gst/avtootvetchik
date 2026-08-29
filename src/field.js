@@ -56,6 +56,22 @@ export const CHAIN_HOP = TILE_SIZE * 2.2;
 const CHAIN_TILES = 90;
 
 
+/*
+ * Вещества, которые рождаются не из очереди игрока. Бочка разливает воду,
+ * кристалл бьёт разрядом — у обоих нет автора и нет состава, но правила
+ * поля для них те же самые. Собраны как настоящие вещества, чтобы не
+ * заводить второй путь для того же самого.
+ */
+export const SPILL = {
+  id: 'spill', name: 'ВОДА', elements: ['water'], pure: false,
+  colour: '#4de1ff', traits: { reach: 1, speed: 1, wet: 1, douse: 1 },
+};
+
+export const JOLT = {
+  id: 'jolt', name: 'РАЗРЯД', elements: ['bolt'], pure: false,
+  colour: '#ffe14d', traits: { reach: 1, speed: 1, shock: 1 },
+};
+
 export function createField(world) {
   const size = world.w * world.h;
   world.ground = new Uint8Array(size);

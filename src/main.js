@@ -291,6 +291,7 @@ function startLevel(next, { silent } = {}) {
 
   world = createWorld(level);
   syncElementButtons();
+  tutorStart();
   view = { x: world.player.x, y: world.player.y };
   renderer.invalidate();
   scene = 'play';
@@ -462,6 +463,47 @@ function buildIntent(raw) {
 
   return intent;
 }
+
+/* =========================================================
+   ОБУЧАЛКА
+   =========================================================
+   Первый этаж учит не кнопкам, а главному правилу игры:
+   стихии работают друг через друга. Огонь вскрывает бочку,
+   вода из неё разливается под ногами у врагов, разряд в
+   лужу забирает троих разом.
+
+   Подсказки идут по событиям мира, а не по таймеру: игрок
+   узнаёт про бочку, когда убил первого, и про молнию —
+   когда вода уже на полу. Сказанное заранее не запоминается.
+   ========================================================= */
+
+let tutorStep = 0;
+
+function tutorStart() {
+  tutorStep = level.tutorial ? 1 : 0;
+  if (tutorStep) setToast('НАБЕРИ ← ОГОНЬ, ЖМИ ПРОБЕЛ. / — МОЛНИЯ', 3.6);
+}
+
+function tutorFeed(event) {
+  if (!tutorStep) return;
+
+  if (tutorStep === 1 && event.type === 'kill') {
+    tutorStep = 2;
+    setToast('ВПЕРЕДИ БОЧКА С ВОДОЙ — РАЗБЕЙ ЕЁ ОГНЁМ', 3.6);
+    return;
+  }
+
+  if (tutorStep <= 2 && event.type === 'barrel') {
+    tutorStep = 3;
+    setToast('ВОДА РАЗЛИЛАСЬ. МОЛНИЯ БЬЁТ ВСЕХ, КТО В НЕЙ', 3.6);
+    return;
+  }
+
+  if (tutorStep === 3 && event.type === 'chain' && event.size > 1) {
+    tutorStep = 4;
+  }
+}
+
 
 /* =========================================================
    КНИГА
@@ -659,8 +701,18 @@ function drainEvents() {
     } else if (event.type === 'shocked-self') {
       setToast('СВОЯ ЖЕ ЛУЖА ПОД ТОКОМ', 2.4);
     } else if (event.type === 'chain' && event.size > 1) {
-      setToast(`ЦЕПЬ ПО ВОДЕ — ${event.size}`, 1.4);
+      /* Цепь — единственное место, где одно нажатие стоит нескольких, и
+         число обязано быть на экране: без него игрок не поймёт, что
+         сделал что-то большее, чем обычный выстрел. */
+      setToast(`ЦЕПЬ ×${event.size}`, 1.8);
+      vibrate([15, 25, 15]);
+    } else if (event.type === 'barrel') {
+      setToast('БОЧКА ВСКРЫТА — ВОДА НА ПОЛУ', 1.6);
+    } else if (event.type === 'crystal') {
+      setToast('КРИСТАЛЛ ОТДАЛ РАЗРЯД', 1.6);
     }
+
+    tutorFeed(event);
 
     if (event.type === 'kill') {
       vibrate(12);

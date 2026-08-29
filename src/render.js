@@ -72,7 +72,7 @@ export const THEMES = [
     wallTop: '#1d4a3c', wallSide: '#0e2a22', wallDark: '#0a1f1a', wallEdge: '#3dffb4',
     gate: '#2de0ff',
     glass: '#8ff5ff',
-    benchTop: '#2a3a45', benchSide: '#16232b', benchEdge: '#ffc95a',
+    benchTop: '#4a5f52', benchSide: '#2b3a33', benchEdge: '#ffc95a',
     rug: '#10463f', rugEdge: '#3dffb4',
     exit: '#3dffb4',
     haze: '#0e5f4a',
@@ -88,7 +88,7 @@ export const THEMES = [
     wallTop: '#3a2f52', wallSide: '#1e1930', wallDark: '#161122', wallEdge: '#c07bff',
     gate: '#c07bff',
     glass: '#c8b6ff',
-    benchTop: '#3a3547', benchSide: '#221f2e', benchEdge: '#ffb347',
+    benchTop: '#565068', benchSide: '#332e42', benchEdge: '#ffb347',
     rug: '#2e2450', rugEdge: '#c07bff',
     exit: '#7dffdc',
     haze: '#3a2260',
@@ -360,6 +360,133 @@ export function createRenderer(canvas) {
 
     if (tile === TILE.TABLE) {
       block(g, c.x, c.y, BENCH_H, theme.benchTop, theme.benchSide, theme.benchSide, theme.benchEdge);
+      return;
+    }
+
+    if (tile === TILE.BARREL) {
+      /*
+       * Бочка с водой. Форма обязана обещать содержимое: тёмный бак с
+       * прозрачной полосой и бликом — «внутри жидкость», а не «ещё одна
+       * коробка». Иначе игрок не догадается, зачем в неё бить.
+       */
+      const H = 30;
+      const R = 16;
+
+      g.fillStyle = 'rgba(0,0,0,.45)';
+      g.beginPath();
+      g.ellipse(c.x, c.y + 2, R, R * 0.45, 0, 0, 6.29);
+      g.fill();
+
+      g.fillStyle = '#0f2c34';
+      g.beginPath();
+      g.moveTo(c.x - R, c.y - 2);
+      g.lineTo(c.x - R, c.y - 2 - H);
+      g.lineTo(c.x + R, c.y - 2 - H);
+      g.lineTo(c.x + R, c.y - 2);
+      g.closePath();
+      g.fill();
+
+      /* Вода внутри светится: форма обязана обещать содержимое, иначе
+         игрок не догадается, зачем в неё бить. */
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      g.fillStyle = 'rgba(60,190,235,.5)';
+      g.fillRect(c.x - R, c.y - 4 - H * 0.5, R * 2, H * 0.5);
+      g.restore();
+
+      g.fillStyle = '#1d5566';
+      g.beginPath();
+      g.ellipse(c.x, c.y - 2 - H, R, R * 0.45, 0, 0, 6.29);
+      g.fill();
+      g.strokeStyle = '#8ff0ff';
+      g.lineWidth = 1.4;
+      g.stroke();
+
+      /* Два обруча — тем и отличается бочка от ящика. */
+      g.strokeStyle = '#08181e';
+      g.lineWidth = 2;
+      for (const k of [0.35, 0.75]) {
+        g.beginPath();
+        g.moveTo(c.x - R, c.y - 2 - H * k);
+        g.lineTo(c.x + R, c.y - 2 - H * k);
+        g.stroke();
+      }
+      return;
+    }
+
+    if (tile === TILE.BOULDER) {
+      /* Валун: тот же блок, но с обломанной верхушкой — форма говорит
+         «камень», а камень в этой игре берёт только земля. */
+      g.fillStyle = 'rgba(0,0,0,.45)';
+      g.beginPath();
+      g.ellipse(c.x, c.y + 2, 20, 9, 0, 0, 6.29);
+      g.fill();
+
+      /* Многогранник, а не куб: камень должен быть узнаваем силуэтом, и
+         именно по силуэту игрок вспоминает, что его берёт только земля. */
+      g.fillStyle = '#3b332a';
+      g.beginPath();
+      g.moveTo(c.x - 19, c.y - 2);
+      g.lineTo(c.x - 12, c.y - 22);
+      g.lineTo(c.x + 2, c.y - 30);
+      g.lineTo(c.x + 16, c.y - 20);
+      g.lineTo(c.x + 19, c.y - 3);
+      g.lineTo(c.x + 4, c.y + 5);
+      g.closePath();
+      g.fill();
+
+      g.fillStyle = '#5d5243';
+      g.beginPath();
+      g.moveTo(c.x - 12, c.y - 22);
+      g.lineTo(c.x + 2, c.y - 30);
+      g.lineTo(c.x + 16, c.y - 20);
+      g.lineTo(c.x + 1, c.y - 14);
+      g.closePath();
+      g.fill();
+
+      g.strokeStyle = '#7d6f58';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(c.x + 1, c.y - 14);
+      g.lineTo(c.x + 2, c.y - 30);
+      g.stroke();
+      return;
+    }
+
+    if (tile === TILE.CRYSTAL) {
+      /* Кристалл светится сам: его нельзя перепутать с камнем, потому что
+         бить в него надо ровно противоположным. */
+      const pulse = 0.55 + Math.sin(world.time * 3 + c.x) * 0.2;
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      g.fillStyle = `rgba(255,226,90,${0.16 * pulse})`;
+      g.beginPath();
+      g.ellipse(c.x, c.y - 6, 26, 16, 0, 0, 6.29);
+      g.fill();
+      g.restore();
+
+      g.fillStyle = '#6a5a1e';
+      g.beginPath();
+      g.moveTo(c.x - 11, c.y);
+      g.lineTo(c.x, c.y - 34);
+      g.lineTo(c.x + 3, c.y - 6);
+      g.closePath();
+      g.fill();
+
+      g.fillStyle = `rgba(255,240,150,${0.55 + pulse * 0.35})`;
+      g.beginPath();
+      g.moveTo(c.x + 11, c.y);
+      g.lineTo(c.x, c.y - 34);
+      g.lineTo(c.x + 3, c.y - 6);
+      g.closePath();
+      g.fill();
+
+      g.strokeStyle = '#fff6c0';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(c.x, c.y - 34);
+      g.lineTo(c.x + 3, c.y - 6);
+      g.stroke();
       return;
     }
 
@@ -1077,8 +1204,9 @@ export function createRenderer(canvas) {
         const at = ty * world.w + tx;
         const tile = world.tiles[at];
 
-        if (tile === TILE.WALL || tile === TILE.GLASS
-          || tile === TILE.TABLE || tile === TILE.DOOR) {
+        if (tile === TILE.WALL || tile === TILE.GLASS || tile === TILE.TABLE
+          || tile === TILE.DOOR || tile === TILE.BARREL
+          || tile === TILE.BOULDER || tile === TILE.CRYSTAL) {
           const hides = tile !== TILE.TABLE && veilsPlayer(world, tx, ty);
           if (hides) ctx.globalAlpha = 0.3;
           tallTile(ctx, world, theme, tx, ty, tile);

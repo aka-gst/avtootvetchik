@@ -13,13 +13,13 @@
  * врагов оружие осталось: бита и пистолет — это их роль, а не инвентарь.
  */
 
-import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable } from './level.js';
+import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable, weakTo } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
 import {
   GROUND, createField, updateField, groundAt, groundIndex, burningAt,
   paint, tilesInCircle, tilesInCone, tilesAlongLine,
   conductedTiles, conducts, cloudsBlock, addCloud,
-  BURN_TIME, WET_TIME, CHAIN_HOP,
+  SPILL, JOLT, BURN_TIME, WET_TIME, CHAIN_HOP,
 } from './field.js';
 import { spellOf, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './magic.js';
 
@@ -724,7 +724,8 @@ function castBeam(world, spell, angle) {
       world.rebake = true;
       spark(world, x, y, angle, 2.2, 10, '#9be7ff', 200);
     } else if (blocksShot(tile)) {
-      break;
+      /* Луч проходит сквозь предмет, который ему по силам, и идёт дальше. */
+      if (!shatter(world, tileIndex(world, x, y), substance)) break;
     }
 
     for (const enemy of world.enemies) {
@@ -915,8 +916,62 @@ function novaAt(world, spell, x, y, atFeet) {
  * по всему конусу, луч — вдоль линии.
  */
 function land(world, tiles, substance, at, force = false) {
+  /* Сперва предметы: бочка обязана вскрыться до того, как на её клетку
+     ляжет вещество, иначе вода разольётся под целой бочкой. */
+  for (const idx of tiles) shatter(world, idx, substance);
+
   paint(world, tiles, substance, at, force);
   if (substance.traits.shock && at) discharge(world, at.x, at.y, substance);
+}
+
+/*
+ * Предмет ломается только своим веществом — и ломается насовсем, оставляя
+ * после себя не пустоту, а последствие. В этом весь смысл: бочка не
+ * «препятствие, которое убрали», а способ налить воды туда, куда сам не
+ * дотянешься.
+ *
+ * Проверяется черта, а не стихия. Лаву и жар роднит огонь, и оба вскрывают
+ * бочку; перечислять составы поимённо значило бы править этот список при
+ * каждой новой смеси.
+ */
+function shatter(world, at, substance) {
+  if (at < 0 || at >= world.tiles.length) return false;
+
+  const tile = world.tiles[at];
+  const need = weakTo(tile);
+  if (!need || !substance || !substance.traits[need]) return false;
+
+  const x = ((at % world.w) + 0.5) * TILE_SIZE;
+  const y = (((at / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  world.tiles[at] = TILE.FLOOR;
+  world.rebake = true;
+  world.fx.shake = Math.max(world.fx.shake, 5);
+
+  if (tile === TILE.BARREL) {
+    /* Вода льётся на соседние клетки, а не только на свою: лужа в одну
+       клетку никого не поймает, и бочка была бы просто мусором. */
+    paint(world, tilesInCircle(world, x, y, TILE_SIZE * 1.7), SPILL, { x, y }, true);
+    spark(world, x, y, 0, 3.2, 14, '#7fe6ff', 150);
+    emitNoise(world, x, y, 260, 'barrel');
+    world.events.push({ type: 'barrel', x, y });
+    return true;
+  }
+
+  if (tile === TILE.CRYSTAL) {
+    /* Кристалл берёт молния — и сам отдаёт её обратно: разряд идёт по
+       всему, что рядом мокрое. Это ловушка, работающая на обе стороны. */
+    spark(world, x, y, 0, 3.2, 16, '#fff2a8', 220);
+    emitNoise(world, x, y, 320, 'crystal');
+    world.events.push({ type: 'crystal', x, y });
+    discharge(world, x, y, JOLT);
+    return true;
+  }
+
+  spark(world, x, y, 0, 3.2, 12, '#c9a27a', 170);
+  emitNoise(world, x, y, 240, 'boulder');
+  world.events.push({ type: 'boulder', x, y });
+  return true;
 }
 
 /*
@@ -1331,6 +1386,12 @@ function updateBullets(world, dt) {
       }
 
       if (blocksShot(tile)) {
+        /* Предмет своей стихии не держит снаряд: он от него и ломается. */
+        if (bullet.substance
+          && shatter(world, tileIndex(world, bullet.x, bullet.y), bullet.substance)) {
+          continue;
+        }
+
         /* Пробой сносит мебель и идёт дальше — на то он и пробой. */
         if (bullet.breaks && tile === TILE.TABLE) {
           world.tiles[tileIndex(world, bullet.x, bullet.y)] = TILE.FLOOR;

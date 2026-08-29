@@ -20,7 +20,9 @@
  *   старт X       6    клетка, откуда входит игрок
  *   старт Y       6
  *   старт угол    3    шаг 45°
- *   тайлы       RLE    пары (тип 3, длина-1 6), пока не наберётся w*h
+ *   тайлы       RLE    пары (тип 3 или 4, длина-1 6), пока не наберётся w*h
+ *                      с версии 3 тип занимает 4 бита: предметов стало
+ *                      больше восьми, и трёх бит перестало хватать
  *   сущностей     7    0..127
  *   сущность     19    тип 4, X 6, Y 6, угол 3
  *   контроль      8    хвостовой байт: битый код должен падать сразу
@@ -29,7 +31,7 @@
  * можно, менять номера существующих — нет, иначе чужие коды поедут.
  */
 
-export const FORMAT_VERSION = 2;
+export const FORMAT_VERSION = 3;
 
 /*
  * Порядок битов маски стихий заморожен навсегда — как номера тайлов.
@@ -40,6 +42,10 @@ export const FORMAT_VERSION = 2;
  * читаются как «огонь, вода, ветер».
  */
 export const ELEMENT_BITS = ['fire', 'water', 'wind', 'earth', 'bolt'];
+
+/* Ширина типа клетки в потоке. Версии 1 и 2 писали три бита и читаются
+   как есть: там предметов ещё не было. */
+const TILE_BITS = 4;
 const V1_ELEMENTS = ['fire', 'water', 'wind'];
 
 export function elementMask(elements) {
@@ -73,6 +79,27 @@ export const TILE = {
   TABLE: 5,  /* мебель: держит и тело, и пулю, но не взгляд */
   RUG: 6,    /* только вид */
   SPARE: 7,
+
+  /*
+   * Предметы со своей стихией. Каждый ломается ровно одним веществом, и
+   * это правило комнаты, а не боя: игрок читает форму предмета и понимает,
+   * что набирать. Номера начинаются с восьми, поэтому с версии 3 тип
+   * клетки занимает четыре бита.
+   */
+  BARREL: 8,   /* бочка с водой: огонь её вскрывает, вода разливается */
+  BOULDER: 9,  /* валун: берёт только земля */
+  CRYSTAL: 10, /* кристалл: берёт только молния, и сам бьёт разрядом */
+};
+
+/*
+ * Чем что ломается. Черта вещества, а не стихия: лаву и жар роднит огонь,
+ * и оба вскрывают бочку — перечислять составы поимённо значило бы
+ * переписывать этот список при каждой новой смеси.
+ */
+export const TILE_WEAKNESS = {
+  [TILE.BARREL]: 'burn',
+  [TILE.BOULDER]: 'crush',
+  [TILE.CRYSTAL]: 'shock',
 };
 
 export const ENTITY = {
@@ -104,6 +131,9 @@ const CHAR_TILE = {
   '|': TILE.GLASS,
   '=': TILE.TABLE,
   'X': TILE.EXIT,
+  'o': TILE.BARREL,
+  'O': TILE.BOULDER,
+  '*': TILE.CRYSTAL,
 };
 
 const CHAR_ENTITY = {
@@ -119,20 +149,27 @@ const CHAR_ENTITY = {
 };
 
 export function blocksMove(tile) {
-  return tile === TILE.WALL || tile === TILE.GLASS || tile === TILE.TABLE;
+  return tile === TILE.WALL || tile === TILE.GLASS || tile === TILE.TABLE
+    || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL;
 }
 
 export function blocksSight(tile) {
-  return tile === TILE.WALL || tile === TILE.DOOR;
+  return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.BOULDER;
 }
 
 export function blocksShot(tile) {
-  return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.TABLE;
+  return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.TABLE
+    || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL;
 }
 
 /* Стекло не останавливает пулю — оно от неё рассыпается. */
 export function breakable(tile) {
   return tile === TILE.GLASS;
+}
+
+/* Предмет ломается только своим веществом — иначе он просто стена. */
+export function weakTo(tile) {
+  return TILE_WEAKNESS[tile] || null;
 }
 
 
@@ -229,7 +266,7 @@ export function encode(level) {
   for (let i = 0; i <= level.tiles.length; i += 1) {
     const tile = level.tiles[i];
     if (tile === value && run < 64 && i < level.tiles.length) { run += 1; continue; }
-    bits.write(value, 3);
+    bits.write(value, TILE_BITS);
     bits.write(run - 1, 6);
     value = tile;
     run = 1;
@@ -278,9 +315,10 @@ export function decode(code) {
   const spawn = { x: bits.read(6), y: bits.read(6), angle: bits.read(3) };
 
   const tiles = new Uint8Array(w * h);
+  const tileBits = version >= 3 ? TILE_BITS : 3;
   let filled = 0;
   while (filled < tiles.length) {
-    const tile = bits.read(3);
+    const tile = bits.read(tileBits);
     const run = bits.read(6) + 1;
     for (let i = 0; i < run && filled < tiles.length; i += 1) tiles[filled++] = tile;
   }

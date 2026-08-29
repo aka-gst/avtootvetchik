@@ -16,13 +16,22 @@
 import { CAMPAIGN } from '../src/levels.js';
 import { createWorld, update, TILE_SIZE, hasSight, hasShot, tileIndex } from '../src/world.js';
 import { buildFlowField } from '../src/ai.js';
-import { blocksMove, decode, encode, elementMask, elementsFromMask } from '../src/level.js';
+import { TILE, blocksMove, decode, encode, elementMask, elementsFromMask, weakTo } from '../src/level.js';
 import { createScore } from '../src/score.js';
 import { AIM_CONE, assistAim, closeThreat } from '../src/aim.js';
 import { CHARGE_STEP, ELEMENT_ORDER, shapeOf, spellOf, substanceOf, allSubstances } from '../src/magic.js';
 import {
   GROUND, paint, tilesInCircle, groundAt, addCloud, updateField, FIRE_CATCH,
 } from '../src/field.js';
+
+/*
+ * Этажи берутся по имени, а не по номеру. Номера уже разъехались один раз,
+ * когда обучалка встала первой, и половина прогона молча начала проверять
+ * не тот этаж — падало при этом совсем в другом месте.
+ */
+const TUTOR = CAMPAIGN[0];
+const HALL = CAMPAIGN.find((level) => level.title.startsWith('ПАВИЛЬОН'));
+const WARDS = CAMPAIGN.find((level) => level.title.startsWith('ОРАНЖЕРЕЯ'));
 
 const DT = 1 / 60;
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
@@ -64,14 +73,25 @@ function cast(world, stack, angle) {
   }
   for (const element of stack) {
     update(world, DT, { ...idle, aimAngle: angle, charge: element });
-    while (player.chargeLeft > 0) update(world, DT, { ...idle, aimAngle: angle });
+
+    /*
+     * Ожидание с ограничителем. Без него прогон вис намертво: убитый по
+     * дороге игрок перестаёт набирать, chargeLeft застывает, и цикл
+     * крутится вечно. Падало это не проверкой, а тишиной.
+     */
+    let guard = 0;
+    while (player.chargeLeft > 0 && player.alive && guard < 120) {
+      update(world, DT, { ...idle, aimAngle: angle });
+      guard += 1;
+    }
+    if (!player.alive) return;
   }
   update(world, DT, { ...idle, aimAngle: angle, attack: true });
 }
 
 /* --- A. Мир крутится вхолостую и никого не убивает --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   run(world, 25);
   check('20 секунд простоя не роняют мир', world.player.alive && world.state === 'play',
     `состояние ${world.state}`);
@@ -82,7 +102,7 @@ function cast(world, stack, angle) {
 
 /* --- B. Плевок убивает и слышен --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const player = world.player;
   const { enemy } = nearest(world);
 
@@ -106,7 +126,7 @@ function cast(world, stack, angle) {
   const woke = world.enemies.filter((e) => e.alive && e.state !== 'idle').length;
   check('одиночный демон не поднимает весь этаж', woke <= 1, `подняты ${woke}`);
 
-  const loud = createWorld(CAMPAIGN[0]);
+  const loud = createWorld(HALL);
   loud.player.x = world.player.x;
   loud.player.y = world.player.y;
   cast(loud, ['fire', 'fire', 'fire'], angle);
@@ -118,7 +138,7 @@ function cast(world, stack, angle) {
 
 /* --- C. Пустая очередь: удар ничего не делает, но говорит об этом --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   update(world, DT, { ...idle, attack: true });
   check('удар с пустой очередью не молчит',
     world.events.some((e) => e.type === 'dry'));
@@ -126,7 +146,7 @@ function cast(world, stack, angle) {
 
 /* --- D. Враг доходит до игрока через двери --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const enemy = world.enemies.find((e) => e.kind === 'thug');
   enemy.state = 'chase';
   const before = Math.hypot(enemy.x - world.player.x, enemy.y - world.player.y);
@@ -224,8 +244,8 @@ function cast(world, stack, angle) {
 
 /* --- E2. Счёт: цепочка и ранг --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
-  const score = createScore(CAMPAIGN[0], 1);
+  const world = createWorld(HALL);
+  const score = createScore(HALL, 1);
   const player = world.player;
 
   const step = (intent) => {
@@ -266,7 +286,7 @@ function cast(world, stack, angle) {
 
 /* --- E3. Помощь прицела: игра без мыши --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const player = world.player;
 
   for (const enemy of world.enemies) enemy.alive = false;
@@ -366,7 +386,7 @@ function cast(world, stack, angle) {
     book.length === 25 && new Set(book.map((entry) => entry.name)).size === 25,
     `${book.length} веществ`);
 
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const player = world.player;
 
   update(world, DT, { ...idle, charge: 'fire' });
@@ -381,12 +401,12 @@ function cast(world, stack, angle) {
   update(world, DT, { ...idle, dump: true });
   check('сброс очищает очередь', player.stack.length === 0);
 
-  const free = createWorld(CAMPAIGN[0]);
+  const free = createWorld(HALL);
   for (let i = 0; i < 20; i += 1) update(free, DT, { ...idle, moveX: 1 });
   const freeSpeed = Math.hypot(free.player.vx, free.player.vy);
 
   /* Набираем непрерывно: меряем установившуюся скорость, а не первый кадр. */
-  const slow = createWorld(CAMPAIGN[0]);
+  const slow = createWorld(HALL);
   for (let i = 0; i < 30; i += 1) {
     const charging = slow.player.chargeLeft <= 0 && slow.player.stack.length < 3;
     if (slow.player.stack.length >= 3) slow.player.stack.length = 0;
@@ -399,7 +419,7 @@ function cast(world, stack, angle) {
 
 /* --- E5. Стойкость: своя стихия не берёт --- */
 {
-  const world = createWorld(CAMPAIGN[1]);
+  const world = createWorld(WARDS);
   const carrier = world.enemies.find((e) => e.resist === 'water');
   check('на втором этаже есть кто-то с водяной стойкостью', Boolean(carrier));
 
@@ -416,14 +436,14 @@ function cast(world, stack, angle) {
 
   /* Три одного цвета против того же цвета — тоже мимо: это стойкость, а
      не щит с зарядами, и количество её не пробивает. */
-  const triple = createWorld(CAMPAIGN[1]);
+  const triple = createWorld(WARDS);
   const same = triple.enemies.find((e) => e.resist === 'water');
   stand(triple, same);
   cast(triple, ['water', 'water', 'water'], 0);
   run(triple, 0.6);
   check('три своих подряд тоже не берут', same.alive, `жив=${same.alive}`);
 
-  const other = createWorld(CAMPAIGN[1]);
+  const other = createWorld(WARDS);
   const target = other.enemies.find((e) => e.resist === 'water');
   stand(other, target);
   cast(other, ['fire'], 0);
@@ -431,7 +451,7 @@ function cast(world, stack, angle) {
   check('чужая стихия убивает', !target.alive);
 
   /* В смешанной очереди хватает одного чужого цвета. */
-  const mixed = createWorld(CAMPAIGN[1]);
+  const mixed = createWorld(WARDS);
   const victim = mixed.enemies.find((e) => e.resist === 'water');
   stand(mixed, victim);
   cast(mixed, ['water', 'fire', 'water'], 0);
@@ -439,7 +459,7 @@ function cast(world, stack, angle) {
   check('смешанная очередь проходит стойкость', !victim.alive);
 
   /* Порча врага той же стихии не убивает своего — правило общее для всех. */
-  const ally = createWorld(CAMPAIGN[1]);
+  const ally = createWorld(WARDS);
   const caster = ally.enemies.find((e) => e.kind === 'caster');
   check('дальнобойный швыряется магией, а не пулями',
     caster && caster.weapon === 'hex', caster ? caster.weapon : 'нет такого');
@@ -452,14 +472,14 @@ function cast(world, stack, angle) {
   /* Состав без ветра рвётся под ногами — на нём и проверяется теснота. */
   const heavy = ['fire', 'water', 'earth'];
 
-  const tight = createWorld(CAMPAIGN[1]);
+  const tight = createWorld(WARDS);
   tight.player.x = 6 * TILE_SIZE + TILE_SIZE / 2;
   tight.player.y = 13 * TILE_SIZE + TILE_SIZE / 2;
   tight.player.stack = [...heavy];
   update(tight, DT, { ...idle, attack: true });
   check('вспышка в узком проходе достаёт и того, кто её выпустил', !tight.player.alive);
 
-  const open = createWorld(CAMPAIGN[1]);
+  const open = createWorld(WARDS);
   open.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
   open.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
   open.player.stack = [...heavy];
@@ -472,7 +492,7 @@ function cast(world, stack, angle) {
    * формы не знает, и ГРОЗУ нельзя было бросить, только подорвать под
    * ногами.
    */
-  const thrown = createWorld(CAMPAIGN[1]);
+  const thrown = createWorld(WARDS);
   thrown.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
   thrown.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
   thrown.player.stack = ['fire', 'water', 'wind'];
@@ -490,7 +510,7 @@ function cast(world, stack, angle) {
     `улетела с ${Math.round(before)}`);
 
   /* Но и брошенная своих не разбирает: подошёл к месту разрыва — сам виноват. */
-  const near = createWorld(CAMPAIGN[1]);
+  const near = createWorld(WARDS);
   near.player.x = 17 * TILE_SIZE + TILE_SIZE / 2;
   near.player.y = 10 * TILE_SIZE + TILE_SIZE / 2;
   near.player.stack = ['fire', 'water', 'wind'];
@@ -509,7 +529,7 @@ function cast(world, stack, angle) {
    * лишняя, и на глаз это не видно — играется бодро и так.
    */
   const clearTime = (count, style) => {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(HALL);
     /* Меряем цену форм, а не выдачу стихий: даём все. */
     world.elements = [...ELEMENT_ORDER];
     const player = world.player;
@@ -560,7 +580,7 @@ function cast(world, stack, angle) {
 
 /* --- F. Производительность шага --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   for (const enemy of world.enemies) enemy.state = 'chase';
   const started = process.hrtime.bigint();
   run(world, 10);
@@ -572,7 +592,7 @@ function cast(world, stack, angle) {
 
 /* --- F. Встреча веществ: та самая таблица, которую нельзя проверить глазом --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const open = { x: world.player.x + TILE_SIZE * 4, y: world.player.y };
   const spot = (substance, r = TILE_SIZE) =>
     paint(world, tilesInCircle(world, open.x, open.y, r), substance, { ...open, r });
@@ -612,7 +632,7 @@ function cast(world, stack, angle) {
   /* Цепь. Ради неё вода и заведена: лужа, налитая заранее, превращает
      одиночный разряд в оружие по площади. */
   function chainRun(withPuddle) {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(HALL);
     const player = world.player;
     const [a, b] = world.enemies;
 
@@ -644,7 +664,7 @@ function cast(world, stack, angle) {
 
   /* Огонь не убивает мгновенно: у горящего есть выход, и это единственное,
      ради чего игрок вообще носит воду. */
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
   const enemy = world.enemies[0];
   enemy.state = 'idle';
   enemy.resist = null;
@@ -663,7 +683,7 @@ function cast(world, stack, angle) {
   check('лужа тушит горящего', enemy.alive && !enemy.burning);
 
   /* Пар прячет — единственное, что умеет вещество без смертельной черты. */
-  const misty = createWorld(CAMPAIGN[0]);
+  const misty = createWorld(HALL);
   const near = misty.enemies[0];
   near.x = misty.player.x + TILE_SIZE * 3;
   near.y = misty.player.y;
@@ -674,7 +694,7 @@ function cast(world, stack, angle) {
 
   /* Пол под ногами решает темп: грязь вязнет, лёд разгоняет и не держит. */
   function pace(ground) {
-    const w = createWorld(CAMPAIGN[0]);
+    const w = createWorld(HALL);
     if (ground) {
       paint(w, tilesInCircle(w, w.player.x, w.player.y, TILE_SIZE * 3), ground,
         { x: w.player.x, y: w.player.y });
@@ -702,7 +722,7 @@ function cast(world, stack, angle) {
    * клетки, и замер меряет не форму, а близость стены.
    */
   function clean() {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(HALL);
     for (const enemy of world.enemies) enemy.alive = false;
     world.player.y -= TILE_SIZE * 2;
     return world;
@@ -757,7 +777,7 @@ function cast(world, stack, angle) {
     groundCount(plain, GROUND.WATER, 0, TILE_SIZE * 12) === 0);
 
   /* ХВАТКА: тянет тех, до кого сам выдох не достаёт. */
-  const grip = createWorld(CAMPAIGN[0]);
+  const grip = createWorld(HALL);
   const far = grip.enemies[0];
   for (const enemy of grip.enemies.slice(1)) enemy.alive = false;
   far.state = 'idle';
@@ -775,24 +795,25 @@ function cast(world, stack, angle) {
 
 /* --- I. Этаж выдаёт стихии сам --- */
 {
-  check('первый этаж даёт две стихии, последний — все пять',
-    CAMPAIGN[0].elements.length === 2 && CAMPAIGN[CAMPAIGN.length - 1].elements.length === 5,
+  check('обучалка даёт две стихии, последний этаж — все пять',
+    TUTOR.elements.length === 2
+    && CAMPAIGN[CAMPAIGN.length - 1].elements.length === ELEMENT_ORDER.length,
     CAMPAIGN.map((level) => level.elements.length).join('→'));
 
   check('каждый следующий этаж не отнимает прежнего',
     CAMPAIGN.every((level, i) =>
       i === 0 || CAMPAIGN[i - 1].elements.every((element) => level.elements.includes(element))));
 
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(TUTOR);
   const player = world.player;
 
-  update(world, DT, { ...idle, charge: 'bolt' });
+  update(world, DT, { ...idle, charge: 'earth' });
   check('стихии, которой этаж не даёт, у игрока нет',
     player.stack.length === 0 && player.chargeLeft <= 0);
   check('и он об этом узнаёт, а не думает, что кнопка сломалась',
-    world.events.some((event) => event.type === 'locked' && event.element === 'bolt'));
+    world.events.some((event) => event.type === 'locked' && event.element === 'earth'));
 
-  update(world, DT, { ...idle, charge: 'water' });
+  update(world, DT, { ...idle, charge: 'fire' });
   check('своя стихия набирается как обычно', player.chargeLeft > 0);
 
   /*
@@ -800,8 +821,9 @@ function cast(world, stack, angle) {
    * этаже в игрока летит молния, которой он ещё не видел, и цвет снаряда
    * перестаёт быть инструкцией «этим его не бей».
    */
-  const strange = world.enemies.filter((enemy) => enemy.element
-    && !CAMPAIGN[0].elements.includes(enemy.element));
+  const lit = createWorld(HALL);
+  const strange = lit.enemies.filter((enemy) => enemy.element
+    && !HALL.elements.includes(enemy.element));
   check('и враги колдуют только стихиями этажа', strange.length === 0,
     strange.map((enemy) => enemy.element).join(','));
 }
@@ -809,7 +831,7 @@ function cast(world, stack, angle) {
 
 /* --- J. Видно — не значит попадёшь --- */
 {
-  const world = createWorld(CAMPAIGN[0]);
+  const world = createWorld(HALL);
 
   /* Мебель на этаже есть всегда: находим стол и становимся по обе стороны. */
   let table = -1;
@@ -857,6 +879,122 @@ function cast(world, stack, angle) {
       back.elements.join() === floor.elements.join(),
       `${back.elements.join()} против ${floor.elements.join()}`);
   }
+}
+
+
+/* --- L. Предметы ломаются только своим веществом --- */
+{
+  const tutorial = TUTOR;
+
+  function withTile(kind) {
+    const world = createWorld(tutorial);
+    world.elements = [...ELEMENT_ORDER];
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    /* Ставим предмет в трёх клетках правее игрока, на чистом полу. */
+    const px = Math.floor(world.player.x / TILE_SIZE);
+    const py = Math.floor(world.player.y / TILE_SIZE);
+    const at = py * world.w + px + 3;
+    world.tiles[at] = kind;
+    return { world, at };
+  }
+
+  const cases = [
+    { kind: TILE.BARREL, name: 'бочку', yes: ['fire'], no: ['bolt'] },
+    { kind: TILE.BOULDER, name: 'валун', yes: ['earth'], no: ['fire'] },
+    { kind: TILE.CRYSTAL, name: 'кристалл', yes: ['bolt'], no: ['earth'] },
+  ];
+
+  for (const one of cases) {
+    const hit = withTile(one.kind);
+    cast(hit.world, one.yes, 0);
+    run(hit.world, 0.4);
+    check(`${one.name} берёт своя стихия`, hit.world.tiles[hit.at] === TILE.FLOOR,
+      `осталось ${hit.world.tiles[hit.at]}`);
+
+    const miss = withTile(one.kind);
+    cast(miss.world, one.no, 0);
+    run(miss.world, 0.4);
+    check(`${one.name} чужая не берёт`, miss.world.tiles[miss.at] === one.kind);
+  }
+
+  /* Бочка нужна не тем, что исчезает, а тем, что остаётся после неё. */
+  const spill = withTile(TILE.BARREL);
+  cast(spill.world, ['fire'], 0);
+  run(spill.world, 0.4);
+  let wet = 0;
+  for (let i = 0; i < spill.world.ground.length; i += 1) {
+    if (spill.world.ground[i] === GROUND.WATER) wet += 1;
+  }
+  check('из бочки льётся вода, и не в одну клетку', wet >= 5, `${wet} клеток`);
+
+  check('у каждого предмета своя стихия и она одна',
+    weakTo(TILE.BARREL) === 'burn' && weakTo(TILE.BOULDER) === 'crush'
+    && weakTo(TILE.CRYSTAL) === 'shock' && weakTo(TILE.WALL) === null);
+}
+
+/* --- M. Обучалка: тот самый первый ход --- */
+{
+  /*
+   * Ради этого сценария обучалка и написана: огонь вскрывает бочку, вода
+   * из неё разливается под ногами у троих, разряд в лужу забирает всех.
+   * Первое, что игрок узнаёт про игру, — что стихии работают друг через
+   * друга, а не по очереди, — и проверять это надо целиком, а не по частям.
+   */
+  const world = createWorld(TUTOR);
+  check('обучалка даёт огонь и молнию, и больше ничего',
+    world.elements.join() === 'fire,bolt', world.elements.join());
+
+  let barrel = -1;
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  }
+  check('в обучалке есть бочка', barrel >= 0);
+
+  const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
+  const by = (((barrel / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  /* Трое стоят под бочкой — их и должно накрыть. */
+  const under = world.enemies.filter((enemy) => enemy.alive
+    && Math.abs(enemy.x - bx) <= TILE_SIZE * 1.2
+    && enemy.y - by > 0 && enemy.y - by <= TILE_SIZE * 1.6);
+  check('под бочкой стоят трое', under.length === 3, `${under.length}`);
+
+  /* Остальных с этажа убираем: прогон меряет ловушку, а не всю комнату, а
+     одинокий громила у входа успевает достать отступающего. */
+  for (const enemy of world.enemies) {
+    if (!under.includes(enemy)) enemy.alive = false;
+  }
+
+  /* Игрок встаёт сбоку и бьёт огнём в бочку. Сбоку, а не сверху: над
+     бочкой стоит скамья, и снаряд честно вязнет в ней. */
+  world.player.x = bx - TILE_SIZE * 4;
+  world.player.y = by;
+  cast(world, ['fire'], 0);
+  run(world, 0.25);
+
+  check('огонь вскрыл бочку', world.tiles[barrel] === TILE.FLOOR);
+  check('трое стали мокрыми', under.every((enemy) => !enemy.alive || enemy.wet > 0),
+    under.map((enemy) => (enemy.wet || 0).toFixed(1)).join(' '));
+
+  /*
+   * Разряд идёт в лужу, а не в тело. Так это и задумано: цепь для того и
+   * нужна, чтобы не целиться в каждого — попал в воду, забрал всех, кто в
+   * ней стоит. Прицельный выстрел в бегущего с семи клеток был бы лотереей
+   * и мерил бы меткость, а не правило.
+   *
+   * Игрок при этом отходит на десять клеток: троих, бегущих на тебя, и
+   * правда надо встречать с дистанции. Мокрыми они останутся ещё три
+   * секунды — на этом вся ловушка и держится.
+   */
+  world.player.x = bx - TILE_SIZE * 10;
+  cast(world, ['bolt'], 0);
+  run(world, 0.4);
+
+  check('игрок при этом уцелел', world.player.alive);
+  check('разряд по луже забрал всех троих',
+    under.every((enemy) => !enemy.alive),
+    under.map((enemy) => (enemy.alive ? 'жив' : 'нет')).join(' '));
 }
 
 
