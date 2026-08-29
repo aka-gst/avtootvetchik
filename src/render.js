@@ -21,7 +21,7 @@
 import { TILE, TILE_SIZE } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP } from './magic.js';
-import { GROUND, FIRE_CATCH } from './field.js';
+import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
 
 const HALF = TILE_SIZE / 2;
 
@@ -596,14 +596,31 @@ export function createRenderer(canvas) {
     g.restore();
   }
 
-  /* Метки состояния. Решение по ним принимают за долю секунды, поэтому
-     они крупные и однотонные: мокрый — бей молнией, горящий — уже труп. */
-  function stateMark(g, body_) {
+  /*
+   * Состояние тела — цветом на самом теле.
+   *
+   * Поле видно на полу, но решение принимают по телу: кто из этих троих
+   * мокрый, а кто уже выбежал из лужи. Считать это глазами по клеткам под
+   * ногами нельзя — тела движутся, а мокрым остаются ещё три секунды после
+   * того, как вышли. Поэтому свечение живёт на теле, а не под ним.
+   *
+   * Цвет — того вещества, в котором стоят или которым облиты. Он же и есть
+   * ответ на «чем его брать»: синий значит мокрый, а мокрого берёт разряд.
+   */
+  const STATE_COLOURS = {
+    [GROUND.WATER]: '34,170,255',
+    [GROUND.FIRE]: '255,90,25',
+    [GROUND.ICE]: '160,230,255',
+    [GROUND.MUD]: '186,152,72',
+  };
+
+  function stateMark(g, world, body_) {
+    /* Горящий — не состояние, а приговор: он ярче всего и не мигает. */
     if (body_.burning > 0) {
       const flicker = 0.6 + Math.random() * 0.4;
       g.save();
       g.globalCompositeOperation = 'lighter';
-      g.fillStyle = `rgba(255,120,40,${0.42 * flicker})`;
+      g.fillStyle = `rgba(255,120,40,${0.45 * flicker})`;
       g.beginPath();
       g.arc(body_.x, body_.y, BODY + 5 + Math.random() * 3, 0, 6.29);
       g.fill();
@@ -611,12 +628,43 @@ export function createRenderer(canvas) {
       return;
     }
 
-    if (body_.wet > 0) {
-      g.strokeStyle = `rgba(120,220,255,${0.3 + Math.min(1, body_.wet / 3) * 0.45})`;
-      g.lineWidth = 1.8;
+    const ground = groundAt(world, body_.x, body_.y);
+    const wet = (body_.wet || 0) > 0;
+    const colour = STATE_COLOURS[ground] || (wet ? STATE_COLOURS[GROUND.WATER] : null);
+    if (!colour) return;
+
+    /* Слабое свечение, а не заливка: метка не должна спорить с кольцом
+       стойкости — то говорит, чем НЕ брать, и оно важнее. */
+    const pulse = 0.72 + Math.sin(world.time * 4 + body_.x) * 0.28;
+    const r = BODY + 9;
+
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    const glow = g.createRadialGradient(body_.x, body_.y, 1, body_.x, body_.y, r);
+    glow.addColorStop(0, `rgba(${colour},${0.34 * pulse})`);
+    glow.addColorStop(0.6, `rgba(${colour},${0.2 * pulse})`);
+    glow.addColorStop(1, `rgba(${colour},0)`);
+    g.fillStyle = glow;
+    g.beginPath();
+    g.arc(body_.x, body_.y, r, 0, 6.29);
+    g.fill();
+    g.restore();
+
+    /*
+     * Отдельная метка на мокром: разряд по нему пойдёт дальше, по всей
+     * связной воде. Это единственное состояние с готовым ответом, поэтому
+     * оно и подписано цветом ответа — молнией. Метка появляется, только
+     * если молния у игрока вообще есть: рисовать подсказку к тому, чего
+     * нет в руках, — обещание, которого игра не держит.
+     */
+    if (conducts(world, body_) && world.elements.includes('bolt')) {
+      g.strokeStyle = `rgba(255,225,77,${0.35 + pulse * 0.4})`;
+      g.lineWidth = 1.6;
+      g.setLineDash([3, 4]);
       g.beginPath();
-      g.arc(body_.x, body_.y, BODY + 4, 0, 6.29);
+      g.arc(body_.x, body_.y, BODY + 12, 0, 6.29);
       g.stroke();
+      g.setLineDash([]);
     }
   }
 
@@ -639,7 +687,7 @@ export function createRenderer(canvas) {
     for (const enemy of world.enemies) {
       if (!enemy.alive) continue;
 
-      stateMark(g, enemy);
+      stateMark(g, world, enemy);
 
       /*
        * Стихию врага видно всегда: она же его и защищает, поэтому кольцо
@@ -702,7 +750,7 @@ export function createRenderer(canvas) {
     g.stroke();
     g.restore();
 
-    stateMark(g, player);
+    stateMark(g, world, player);
 
     mage(g, {
       x: player.x, y: player.y, angle: player.angle,
