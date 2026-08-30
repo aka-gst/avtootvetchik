@@ -1856,6 +1856,54 @@ function cast(world, stack, angle) {
 }
 
 
+/* --- P4. Щиток шумит не там, где игрок --- */
+{
+  /*
+   * Первый способ пройти этаж, никого не убив, и первый шум в игре,
+   * который исходит не из-под ног игрока. Всё остальное, что гремит,
+   * гремит там, где ты стоишь: выстрел, взрыв, падающее тело. Таким
+   * шумом можно убить, но нельзя отвлечь.
+   *
+   * Проверяется не «щиток ломается», а то, ради чего он есть: стража
+   * идёт к щитку, а не к игроку. Проверка на разность расстояний, а не
+   * на факт тревоги — иначе она пройдёт и на шуме под ногами.
+   */
+  const world = createWorld(TUTOR);
+  world.elements = [...ELEMENT_ORDER];
+
+  let panel = -1;
+  for (let i = 0; i < world.tiles.length && panel < 0; i += 1) {
+    if (world.tiles[i] === TILE.PANEL) panel = i;
+  }
+  check('в парке есть щиток', panel >= 0, `клетка ${panel}`);
+
+  const px = ((panel % world.w) + 0.5) * TILE_SIZE;
+  const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  /* Игрок далеко от щитка и от стражи: важно, что шум придёт не от него. */
+  const guard = world.enemies.find((enemy) => enemy.alive);
+  guard.x = px + TILE_SIZE * 6;
+  guard.y = py + TILE_SIZE * 3;
+  guard.state = 'idle';
+  guard.heard = null;
+
+  world.player.x = px + TILE_SIZE * 4;
+  world.player.y = py;
+
+  const доИгрока = () => Math.hypot(guard.x - world.player.x, guard.y - world.player.y);
+  const доЩитка = () => Math.hypot(guard.x - px, guard.y - py);
+  const былоДоЩитка = доЩитка();
+
+  cast(world, ['bolt'], Math.PI);
+  run(world, 3);
+
+  check('щиток замкнуло', world.tiles[panel] !== TILE.PANEL);
+  check('стража пошла к щитку, а не к игроку',
+    доЩитка() < былоДоЩитка && доЩитка() < доИгрока(),
+    `до щитка ${Math.round(былоДоЩитка)} → ${Math.round(доЩитка())}, до игрока ${Math.round(доИгрока())}`);
+}
+
+
 /* --- Q0. Мокрое дерево не горит --- */
 {
   /*

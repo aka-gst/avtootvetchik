@@ -461,6 +461,41 @@ export function createRenderer(canvas) {
         continue;
       }
 
+      if (tile === TILE.PANEL) {
+        /*
+         * Щиток. Коробка на стене с двумя лампами и рубильником — вещь
+         * техническая, а не магическая, и по виду её не спутаешь ни с
+         * бочкой, ни с кристаллом. Лампы мигают вразнобой: живое питание
+         * должно быть видно издалека, потому что бьют по нему издалека.
+         */
+        const blink = 0.5 + Math.sin(world.time * 5 + i) * 0.5;
+
+        g.fillStyle = '#2b3340';
+        g.fillRect(cx - 11, cy - 9, 22, 18);
+        g.strokeStyle = '#5d6b7e';
+        g.lineWidth = 1.4;
+        g.strokeRect(cx - 11, cy - 9, 22, 18);
+
+        g.fillStyle = `rgba(255,226,77,${0.45 + blink * 0.55})`;
+        g.beginPath();
+        g.arc(cx - 5, cy - 3, 2.4, 0, 6.29);
+        g.fill();
+
+        g.fillStyle = `rgba(110,240,180,${0.9 - blink * 0.5})`;
+        g.beginPath();
+        g.arc(cx + 5, cy - 3, 2.4, 0, 6.29);
+        g.fill();
+
+        /* Рубильник вниз — щиток под напряжением. */
+        g.strokeStyle = '#c9d6e2';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(cx - 4, cy + 4);
+        g.lineTo(cx + 4, cy + 6);
+        g.stroke();
+        continue;
+      }
+
       if (tile === TILE.CRYSTAL) {
         /* Кристалл светится сам: перепутать его с камнем нельзя, потому
            что бить в него надо ровно противоположным. */
