@@ -174,6 +174,8 @@ function fling(world, mover, from) {
 
 function moveBody(world, body, dx, dy) {
   const r = BODY;
+  const было = Math.hypot(body.vx || 0, body.vy || 0);
+  let вСтену = false;
 
   if (dx) {
     const nx = body.x + dx;
@@ -181,6 +183,7 @@ function moveBody(world, body, dx, dy) {
     if (!solidAt(world, edge, body.y - r + 1) && !solidAt(world, edge, body.y + r - 1)) {
       body.x = nx;
     } else {
+      if (Math.abs(body.vx || 0) > 1) вСтену = true;
       body.vx = 0;
     }
   }
@@ -191,9 +194,50 @@ function moveBody(world, body, dx, dy) {
     if (!solidAt(world, body.x - r + 1, edge) && !solidAt(world, body.x + r - 1, edge)) {
       body.y = ny;
     } else {
+      if (Math.abs(body.vy || 0) > 1) вСтену = true;
       body.vy = 0;
     }
   }
+
+  /*
+   * Стена — то же тело, только неподвижное. Летящий в неё получает то же,
+   * что получил бы, влетев в живого: правило одно, иначе стена оказалась
+   * бы мягче человека.
+   *
+   * Отсюда и берётся смысл льда. До сих пор скольжение отнимало
+   * управление и больше ничего: съехал — и съехал. Теперь замороженный
+   * пол плюс толчок дают связку, которой никто не задумывал: разогнать
+   * врага в стену, ни разу его не коснувшись.
+   *
+   * А вот порог не тот же, и первая попытка на этом и легла. Я взял
+   * общий порог с тела в тело и убил игрока о первую же стену: своим
+   * ходом он идёт двести пятьдесят два, вдвое выше порога. Бот погибал
+   * на каждом этаже, не сделав ни выстрела.
+   *
+   * Считается не скорость, а то, **своим ли ходом** тело её набрало.
+   * Брошенному хватает общего порога; идущему сам — нужна скорость,
+   * какой он не развивает никогда.
+   */
+  const брошено = (body.shove || 0) > 0;
+  if (вСтену && было >= (брошено ? FLING_SPEED : 300)) {
+    slam(world, body, было);
+  }
+}
+
+function slam(world, body, speed) {
+  if (!body.alive) return;
+
+  const angle = Math.atan2(body.vy || 0, body.vx || 0);
+  world.fx.shake = Math.max(world.fx.shake, 5);
+  world.events.push({ type: 'slam', speed: Math.round(speed) });
+
+  if (body === world.player) {
+    killPlayer(world, angle);
+    return;
+  }
+
+  killEnemy(world, body, angle, 'slam',
+    { by: 'player', weapon: 'wall', elements: [] });
 }
 
 /*

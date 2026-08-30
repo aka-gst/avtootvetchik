@@ -75,6 +75,7 @@ export function createScore(level, attempts = 1) {
       : event.cause === 'chain' ? 'ПО ВОДЕ'
       : event.cause === 'fire' ? 'ОГНЁМ'
       : event.cause === 'fling' ? 'ТЕЛОМ'
+      : event.cause === 'slam' ? 'О СТЕНУ'
       : 'ВЫРЕЗАН';
 
     return { gain, reason, combo: state.combo };

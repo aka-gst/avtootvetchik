@@ -118,6 +118,7 @@ const SFX_BY_EVENT = {
   dry: 'dry',
   glass: 'glass',
   panel: 'chain',
+  slam: 'impact',
   spot: 'spot',
   cleared: 'exit',
   chain: 'chain',
@@ -676,6 +677,12 @@ const JABS = {
     'ИСКРА ЕМУ НЕ СОПЕРНИК — НУЖНО ВЕЩЕСТВО',
     'ЩЕКОТНО. ПОПРОБУЙ СЕРЬЁЗНЕЕ',
   ],
+  slam: [
+    'ПРИЛОЖИЛО',
+    'СТЕНА ВЫИГРАЛА',
+    'ЛЁД ДОВЁЗ',
+    'РАЗОГНАЛСЯ И ПРИЕХАЛ',
+  ],
   fling: [
     'КЕГЛЯ',
     'ОДНИМ ТЕЛОМ ДВОИХ',
@@ -972,6 +979,9 @@ function drainEvents() {
     } else if (event.type === 'charge') {
       landed = event.size;
       updateHud(true);
+    } else if (event.type === 'slam') {
+      setToast(jab('slam', 'В СТЕНУ. СТЕНА НЕ МЯГЧЕ ЧЕЛОВЕКА'), 1.8);
+      vibrate([14, 22]);
     } else if (event.type === 'fling') {
       /* Новый глагол, и о нём надо сказать: врагами можно бросаться. */
       setToast(jab('fling', 'ТЕЛО ТОЖЕ СНАРЯД'), 1.8);

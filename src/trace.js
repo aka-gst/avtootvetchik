@@ -31,6 +31,7 @@ const BY_EVENT = {
   backfire: 'sam',         /* задел себя вспышкой */
   'shocked-self': 'sam',   /* и своей же лужей */
   knock: 'sbil',           /* сбил с ног */
+  slam: 'stena',           /* разогнал в стену */
 };
 
 export function createTrace() {
