@@ -51,6 +51,7 @@ const HALL = CAMPAIGN.find((level) => level.title.startsWith('ПАВИЛЬОН')
 const WARDS = CAMPAIGN.find((level) => level.title.startsWith('ОРАНЖЕРЕЯ'));
 
 const DT = 1 / 60;
+const SLEEP_TIME_TEST = 11;   /* заведомо дольше сна, чтобы все успели встать */
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
 const report = [];
 let failures = 0;
@@ -131,7 +132,11 @@ function cast(world, stack, angle) {
   cast(world, ['fire'], angle);
   run(world, 0.5);
 
-  check('одиночный демон убивает с дистанции', sees ? !enemy.alive : true,
+  /* Правило сменилось: голая стихия больше не убивает, а вырубает.
+     Проверяем то же самое — удар дошёл с дистанции, — но по новому
+     исходу. Смерть проверяется отдельно, там, где за неё заплачено. */
+  check('одиночный демон достаёт с дистанции и вырубает',
+    sees ? (enemy.alive && enemy.downed > 0) : true,
     `видимость=${sees} жив=${enemy.alive}`);
   check('очередь после выстрела пуста', player.stack.length === 0);
 
@@ -140,7 +145,12 @@ function cast(world, stack, angle) {
    * это единственный способ убрать одного и не собрать этаж. Большие
    * формы, наоборот, слышно везде, и это их честная цена.
    */
-  const woke = world.enemies.filter((e) => e.alive && e.state !== 'idle').length;
+  /* Лежачий не «поднят»: у него state === 'down', то есть по старому
+     счёту он попадал в разбуженных и врал в большую сторону. Считаем
+     тех, кто на ногах. */
+  const наногах = (w) => w.enemies.filter((e) => e.alive && !(e.downed > 0)
+    && e.state !== 'idle').length;
+  const woke = наногах(world);
   check('одиночный демон не поднимает весь этаж', woke <= 1, `подняты ${woke}`);
 
   const loud = createWorld(HALL);
@@ -148,9 +158,8 @@ function cast(world, stack, angle) {
   loud.player.y = world.player.y;
   cast(loud, ['fire', 'fire', 'fire'], angle);
   run(loud, 0.8);
-  check('луч слышно через стены',
-    loud.enemies.filter((e) => e.alive && e.state !== 'idle').length > woke,
-    `подняты ${loud.enemies.filter((e) => e.alive && e.state !== 'idle').length}`);
+  check('луч слышно через стены', наногах(loud) > woke,
+    `подняты ${наногах(loud)} против ${woke}`);
 }
 
 /* --- C. Пустая очередь: удар ничего не делает, но говорит об этом --- */
@@ -704,7 +713,11 @@ function cast(world, stack, angle) {
     player.x = victim.x;
     player.y = victim.y + 60;
     const angle = -Math.PI / 2;
-    /* Бьём не той стихией, которой он светится, иначе он просто отобьёт. */
+    /*
+     * Бьём не той стихией, которой он светится, иначе он просто отобьёт.
+     * И бьём ДВУМЯ разными: одиночная стихия теперь вырубает, а не
+     * убивает, а этот кусок проверяет цену именно убийства.
+     */
     for (const element of [ELEMENT_ORDER.find((e) => e !== victim.resist)]) {
       step({ ...idle, aimAngle: angle, charge: element });
       while (player.chargeLeft > 0) step({ ...idle, aimAngle: angle });
@@ -714,12 +727,34 @@ function cast(world, stack, angle) {
     for (let i = 0; i < 12; i += 1) step();
   };
 
+  /*
+   * Точный одиночный плевок теперь вырубает, а не убивает, — а проверяем
+   * мы здесь цепочку, то есть множитель за подряд. Берём тот исход,
+   * который у точного удара и получается, и считаем множитель по нему.
+   * Составом бить нельзя: сгусток задевает соседей, и в счёт попадает не
+   * то, что мерили (было 260 вместо 100).
+   */
   const alive = world.enemies.filter((e) => e.alive);
   kill(alive[0]);
-  check('первое убийство стоит базовых очков', score.state.score === 100, String(score.state.score));
+  check('первый вырубленный стоит базовых очков', score.state.score === 60, String(score.state.score));
 
   kill(alive[1]);
-  check('второе подряд идёт с множителем ×2', score.state.score === 300, String(score.state.score));
+  check('второй подряд идёт с множителем ×2', score.state.score === 180, String(score.state.score));
+
+  /*
+   * И отдельно — что убийство дороже вырубания. Синтетическим событием,
+   * без сцены: цена не должна зависеть от того, как удалось поставить
+   * жертву. Если эти два числа сравняются, выбор между способами
+   * исчезнет, а вместе с ним и смысл несмертельного пути.
+   */
+  const весы = createScore(HALL, 1);
+  весы.feed([{ type: 'sleep', by: 'player', x: 0, y: 0 }]);
+  const заВырубание = весы.state.score;
+  const весы2 = createScore(HALL, 1);
+  весы2.feed([{ type: 'kill', by: 'player', cause: 'chain', x: 0, y: 0 }]);
+  check('убийство дороже вырубания, но вырубание не ноль',
+    весы2.state.score > заВырубание && заВырубание > 0,
+    `${весы2.state.score} против ${заВырубание}`);
 
   for (let i = 0; i < 4.5 / DT; i += 1) step();
   check('пауза обрывает цепочку', score.state.combo === 0);
@@ -894,7 +929,10 @@ function cast(world, stack, angle) {
   stand(other, target);
   cast(other, ['fire'], 0);
   run(other, 0.4);
-  check('чужая стихия убивает', !target.alive);
+  /* Чужая стихия его берёт — но одиночная теперь вырубает, а не убивает.
+     Проверяем, что стойкость не сработала, а не то, каким стал исход. */
+  check('чужая стихия его берёт', target.downed > 0 || !target.alive,
+    `жив=${target.alive} лежит=${target.downed > 0}`);
 
   /* В смешанной очереди хватает одного чужого цвета. */
   const mixed = createWorld(WARDS);
@@ -1101,10 +1139,16 @@ function cast(world, stack, angle) {
   }
 
   const dry = chainRun(false);
+  /* Сухой разряд — одиночная молния, значит первый ложится, а не гибнет.
+     Проверяемое здесь другое: до второго не дошло ничего. */
+  const тронут = (e) => !e.alive || e.downed > 0;
   check('без лужи разряд достаёт только того, в кого целились',
-    !dry.a.alive && dry.b.alive, `первый=${dry.a.alive} второй=${dry.b.alive}`);
+    тронут(dry.a) && !тронут(dry.b),
+    `первый=${тронут(dry.a)} второй=${тронут(dry.b)}`);
 
   const wet = chainRun(true);
+  /* А по луже — обоих, и именно насмерть: цепь по воде это `chain`,
+     за неё заплачено лужей, и она бьёт всерьёз. */
   check('по луже разряд достаёт и того, в кого не целились',
     !wet.a.alive && !wet.b.alive, `первый=${wet.a.alive} второй=${wet.b.alive}`);
 
@@ -2279,6 +2323,11 @@ function простороту(world, at, шагов) {
   run(world, FIRE_CATCH + BURN_TIME + 0.3);
   check('стоящий у копны сгорает', !victim.alive);
 
+  /* Он был вырублен прямым попаданием и лежал в огне. Если обморок
+     защищает от пожара, вырубать становится выгоднее, чем убивать, — а
+     это ровно та поблажка, которой быть не должно. */
+  check('вырубленный в огне догорает, а не отлёживается', !victim.alive && victim.downed > 0);
+
   /* Но не всё подряд: молния соломе безразлична. */
   const dry = createWorld(TUTOR);
   dry.elements = [...ELEMENT_ORDER];
@@ -2289,6 +2338,115 @@ function простороту(world, at, шагов) {
   check('молния солому не берёт', dry.tiles[edge] === TILE.HAY);
 }
 
+
+/* --- Вырубание: несмертельная одиночная стихия --- */
+{
+  const HALL2 = CAMPAIGN[0];
+
+  /* Просыпается сам, и просыпается настороже, а не как ни в чём не бывало. */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    for (const other of world.enemies) if (other !== enemy) other.alive = false;
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    check('одиночная стихия вырубает, а не убивает',
+      enemy.alive && enemy.downed > 0, `жив=${enemy.alive} лежит=${enemy.downed > 0}`);
+
+    run(world, 4);
+    check('через четыре секунды всё ещё лежит', enemy.downed > 0,
+      `осталось ${enemy.downed.toFixed(1)} с`);
+
+    run(world, 7);
+    check('но просыпается сам', enemy.alive && !(enemy.downed > 0));
+    check('и просыпается настороже, а не спящим', enemy.state !== 'idle',
+      `состояние ${enemy.state}`);
+  }
+
+  /* Лежачего добивают — иначе вырубание было бы бесплатной неуязвимостью. */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    check('лежачего добивает та же одиночная стихия', !enemy.alive);
+  }
+
+  /*
+   * Отсутствие состава — не одиночный состав. Чужая пуля стихий не несёт
+   * и обязана убивать: иначе враги перестают убивать друг друга, а с
+   * ними исчезает и «чужими руками».
+   */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    killEnemy(world, enemy, 0, 'bullet', { by: 'enemy', weapon: 'pistol' });
+    check('удар без стихий убивает, а не вырубает', !enemy.alive);
+  }
+
+  /*
+   * Лежачий — улика. Стоящий рядом обязан его заметить и поднять этаж:
+   * без этого вырубание было бы строго выгоднее убийства, потому что
+   * ничего не стоило бы.
+   */
+  {
+    const world = createWorld(HALL2);
+    const жертва = world.enemies.find((victim) => victim.alive
+      && world.enemies.some((other) => other !== victim && other.alive
+        && Math.hypot(other.x - victim.x, other.y - victim.y) < 120
+        && hasSight(world, other.x, other.y, victim.x, victim.y)));
+    check('на этаже есть кого вырубить на глазах у соседа', Boolean(жертва));
+    world.engaged = false;
+    killEnemy(world, жертва, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    run(world, 0.5);
+    check('лежачего замечают, и этаж просыпается', world.engaged === true);
+  }
+
+  /*
+   * И главное: несмертельный проход обязан быть проходимым. Если выход
+   * ждёт трупов, вырубивший всех заперт навсегда — а снаружи это
+   * выглядит не строгостью, а поломкой.
+   */
+  {
+    const world = createWorld(HALL2);
+    for (const enemy of world.enemies) {
+      if (enemy.alive) killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    }
+    const лежат = world.enemies.filter((e) => e.alive && e.downed > 0).length;
+    check('вырублены все, не убит никто', лежат === world.total && world.kills === 0,
+      `лежат ${лежат} из ${world.total}, убито ${world.kills}`);
+    check('выход открыт для того, кто никого не убил', world.exitOpen === true);
+
+
+  }
+
+  /*
+   * И то же самое ВРАЗБИВКУ — потому что одновременное вырубание эту
+   * разницу не ловит вовсе. Кладём первого, ждём дольше сна, чтобы он
+   * встал, и кладём остальных: одновременно лежащими они не бывают
+   * никогда. По старому правилу выход не открылся бы ни разу.
+   *
+   * Это и есть настоящий случай: обход восьмерых стоит около двух секунд
+   * на каждого, то есть шестнадцати, а сон длится девять. Проверка,
+   * ставящая всех разом, проходила при любом правиле — украшение.
+   */
+  {
+    const world = createWorld(HALL2);
+    const все = world.enemies.filter((e) => e.alive);
+    killEnemy(world, все[0], 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    run(world, SLEEP_TIME_TEST);
+    check('первый успел встать', !(все[0].downed > 0) && все[0].alive,
+      `лежит=${все[0].downed > 0}`);
+
+    for (const enemy of все.slice(1)) {
+      killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    }
+    const лежатСейчас = world.enemies.filter((e) => e.alive && e.downed > 0).length;
+    check('одновременно лежат не все', лежатСейчас < world.total,
+      `${лежатСейчас} из ${world.total}`);
+    check('выход всё равно открыт: считается положенный, а не лежащий',
+      world.exitOpen === true);
+  }
+}
 
 console.log(report.join('\n'));
 console.log(failures ? `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}` : '\nвсе проверки прошли');
