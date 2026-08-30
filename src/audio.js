@@ -43,8 +43,18 @@ export function createAudio() {
     снова и снова. Поэтому на localhost умолчание — тишина,
     а явно сохранённый выбор всё равно сильнее умолчания.
   */
+  /*
+   * Съёмка и обходы витрины идут при выключенном звуке, и выключать его
+   * снаружи ненадёжно: звуковой контекст оживает сам при изменении
+   * размера окна. Поэтому запрет ставится до старта и живёт в адресе:
+   * ?тихо. Латинское написание принимается тоже — адрес нередко
+   * набирают руками.
+   */
+  const quiet = /[?&](тихо|tiho|quiet)\b/.test(
+    decodeURIComponent(window.location.search || ''));
+
   try {
-    const saved = localStorage.getItem('avto-muted');
+    const saved = quiet ? '1' : localStorage.getItem('avto-muted');
 
     const local =
       /^(localhost|127\.0\.0\.1|\[::1\])$/.test(
