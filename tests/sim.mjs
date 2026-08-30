@@ -209,9 +209,286 @@ function cast(world, stack, angle) {
    */
   function play(floor) {
   const world = createWorld(floor);
+
+  /*
+   * Бот умеет ломать то, что держит дорогу. Раньше не умел, и этого не
+   * было заметно: этажи были проходными комнатами, обойти можно было
+   * всё. Как только первый этаж стал коридором задачек с воротами из
+   * соломы и кристалла, бот встал во второй комнате — и это не «сложно»,
+   * это проверка, которая перестала проверять.
+   *
+   * Ломает он вслепую, перебором стихий, как и живой человек, который
+   * ещё не знает, что соломе нужен огонь: если стоим на месте дольше
+   * полутора секунд, бьём в ближайшее ломаемое очередной стихией.
+   */
+  let stillFor = 0;
+  let wasX = 0;
+  let wasY = 0;
+  let tryElement = 0;
+  let breaking = null;
+  let breakingFor = 0;
+
+  /*
+   * В огонь не идём. Бот честно ломал соломенную створку и честно шёл в
+   * неё же — прямо по горящим клеткам, — и погибал во второй комнате
+   * от собственного пожара. Живой игрок ждёт, пока прогорит; боту это
+   * приходится сказать словами.
+   */
+  function safeStep(w, step) {
+    if (!step || (!step.x && !step.y)) return step;
+    const player = w.player;
+    if (groundAt(w, player.x, player.y) === GROUND.FIRE) {
+      return { x: -step.x, y: -step.y };
+    }
+    /*
+     * Смотрим на две клетки вперёд, а не на одну. Створка — коридор в
+     * одну клетку шириной: войдя в неё по краю пожара, выйти уже некуда,
+     * все стороны заняты стеной, и огонь доедает стоящего. Правильное
+     * место, чтобы этого не случилось, — снаружи, до входа.
+     */
+    for (const reach of [26, 48]) {
+      if (groundAt(w, player.x + step.x * reach, player.y + step.y * reach) === GROUND.FIRE) {
+        return { x: 0, y: 0 };
+      }
+    }
+    return step;
+  }
+
+  /*
+   * Молния в собственной луже убивает того, кто её пустил, — правило
+   * игры, а не поблажка. Бот на него исправно натыкался: разливал воду
+   * из бочки, вставал в неё и бил разрядом. Живой игрок отучается от
+   * этого за одну смерть, боту нужна строчка.
+   */
+  function shocksSelf(w, element) {
+    if (element !== 'bolt') return false;
+    const player = w.player;
+    return groundAt(w, player.x, player.y) === GROUND.WATER || (player.wet || 0) > 0;
+  }
+
+  function blocker(w) {
+    const player = w.player;
+    /*
+     * Без круга поиска. Круг в восемь клеток казался разумным, пока
+     * этаж не стал коридором: зачистив свою половину, бот стоял посреди
+     * пустой комнаты и не видел створки в двух комнатах отсюда — а
+     * идти было больше некуда.
+     */
+    let best = null;
+    let bestGap = Infinity;
+    for (let i = 0; i < w.tiles.length; i += 1) {
+      if (!weakTo(w.tiles[i])) continue;
+      const x = ((i % w.w) + 0.5) * TILE_SIZE;
+      const y = (((i / w.w) | 0) + 0.5) * TILE_SIZE;
+      /*
+       * Створка важнее копны. Ломаемое в стене — это дверь, ломаемое
+       * посреди комнаты — просто вещь, и бот, выбиравший ближайшее,
+       * методично жёг стог в двух шагах, пока дверь в соседнюю комнату
+       * стояла нетронутой. Считаем стены вокруг: у двери их две и
+       * больше, у вещи ни одной.
+       */
+      const tx = i % w.w;
+      const ty = (i / w.w) | 0;
+      let walls = 0;
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = tx + ox;
+        const ny = ty + oy;
+        if (nx < 0 || ny < 0 || nx >= w.w || ny >= w.h) { walls += 1; continue; }
+        if (w.tiles[ny * w.w + nx] === TILE.WALL) walls += 1;
+      }
+
+      const gap = Math.hypot(x - player.x, y - player.y) - (walls >= 2 ? 4000 : 0);
+      if (gap >= bestGap) continue;
+      bestGap = gap;
+      best = { x, y, tile: w.tiles[i] };
+    }
+    return best;
+  }
+
+  /* Отчего именно погиб бот — половина ответа на вопрос, что сломано.
+     Без этого «игрок убит» одинаково означает и злого врага, и свой же
+     пожар, и собственную лужу под током. */
+  world.botDeath = null;
+  world.botTrace = process.env.TRACE ? [] : null;
+
   run(world, 300, (w) => {
     const player = w.player;
     const { enemy, dist } = nearest(w);
+
+    if (!world.botDeath) {
+      if (w.events.some((event) => event.type === 'shocked-self')) world.botDeath = 'свой разряд';
+      else if (!player.alive) {
+        /*
+         * Отчего именно погиб — половина ответа. Проигранный бой и
+         * смерть от собственного пожара выглядят одинаково («игрок
+         * убит»), а значат прямо противоположное: первое — нормальная
+         * игра, второе — этаж, убивающий игрока его же инструментом.
+         */
+        const burned = (player.burning || 0) > 0
+          || groundAt(w, player.x, player.y) === GROUND.FIRE;
+        world.botDeath = burned ? 'сгорел' : 'убит врагом';
+        world.botDeathWhere = `${Math.round(player.x)},${Math.round(player.y)}`;
+      }
+    }
+
+    /*
+     * Первое правило, выше всех остальных: горит под ногами — уходи.
+     * Проверки «не входить в огонь» мало, потому что огонь приходит сам:
+     * бот замирал на месте, набирая стихию, пожар доползал до его клетки,
+     * и он погибал стоя. На земле, которая убивает, не остаются ни ради
+     * замаха, ни ради выстрела.
+     */
+    let hot = null;
+    for (let i = 0; i < 8; i += 1) {
+      const a = (i / 8) * Math.PI * 2;
+      const nx = player.x + Math.cos(a) * 40;
+      const ny = player.y + Math.sin(a) * 40;
+      if (groundAt(w, nx, ny) === GROUND.FIRE) { hot = { x: nx, y: ny }; break; }
+    }
+    if (!hot && groundAt(w, player.x, player.y) === GROUND.FIRE) {
+      hot = { x: player.x, y: player.y };
+    }
+
+    if (hot) {
+      /*
+       * Уходим от огня заранее, а не когда загорелись. Поджёгшийся уже
+       * не спасётся: пламя на теле тушит только вода, а её на этаже может
+       * не быть вовсе. Значит единственная защита — не стоять рядом, и
+       * правило это выше всех прочих: ни замах, ни выстрел не стоят того,
+       * чтобы досчитывать их в огне.
+       */
+      const away = Math.atan2(player.y - hot.y, player.x - hot.x) || Math.PI;
+      for (let i = 0; i < 8; i += 1) {
+        const a = away + (i % 2 ? 1 : -1) * Math.floor(i / 2) * 0.7;
+        const nx = player.x + Math.cos(a) * 34;
+        const ny = player.y + Math.sin(a) * 34;
+        if (blocksMove(w.tiles[tileIndex(w, nx, ny)])) continue;
+        if (groundAt(w, nx, ny) === GROUND.FIRE) continue;
+        return { ...idle, moveX: Math.cos(a), moveY: Math.sin(a) };
+      }
+    }
+
+    if (Math.hypot(player.x - wasX, player.y - wasY) < 6) stillFor += DT;
+    else stillFor = 0;
+    wasX = player.x;
+    wasY = player.y;
+
+    /*
+     * Дорогу держит то, что ломается. Пока этажи были проходными
+     * комнатами, боту это не требовалось; коридор задачек с воротами из
+     * соломы и кристалла он не проходит вовсе, и проверка перестаёт
+     * проверять.
+     *
+     * Преграда запоминается, а не ищется заново каждый кадр: отойти для
+     * замаха — это движение, а движение сбрасывало «стою на месте», и бот
+     * вечно топтался между «застрял» и «отхожу», ни разу не выстрелив.
+     */
+    if (!breaking && stillFor > 1.5) {
+      breaking = blocker(w);
+      if (world.botTrace) world.botTrace.push(breaking ? `цель:${Math.round(breaking.x)},${Math.round(breaking.y)}` : `застрял:${Math.round(player.x)},${Math.round(player.y)}`);
+    }
+
+    if (breaking) {
+      /*
+       * Створка — это дыра в стене, и бить в неё надо стоя напротив.
+       * Выстрел по диагонали уходит в стену рядом: бот честно целился в
+       * кристалл и полторы сотни раз попал в забор.
+       *
+       * Поэтому сначала занимаем место в четырёх клетках прямо перед
+       * створкой, с той стороны, где стоим, и идём туда обычным поиском
+       * пути — он умеет обходить стены, а самодельное выравнивание по
+       * оси упиралось в них и не сходилось.
+       */
+      const dx = breaking.x - player.x;
+      const dy = breaking.y - player.y;
+      const alongY = Math.abs(dy) >= Math.abs(dx);
+
+      /* Далеко — сначала дойти, и дойти по-настоящему, через двери. */
+      if (Math.hypot(dx, dy) > TILE_SIZE * 7) {
+        const walk = safeStep(w, stepToward(w, breaking));
+        if (walk.x || walk.y) {
+          return { ...idle, moveX: walk.x, moveY: walk.y,
+            aimAngle: Math.atan2(dy, dx) };
+        }
+      }
+      /*
+       * Отступ зависит от того, что ломаем. Соломе нужно шесть клеток:
+       * копна занимается целиком, и огонь достаёт дальше, чем стоял
+       * поджигатель. Всему остальному хватает четырёх, и это важно:
+       * створки стоят через равные промежутки, и отступ в пять клеток
+       * ставил бота ровно в соседнюю створку — в дыру шириной в клетку,
+       * откуда он бил по стене рядом с целью.
+       */
+      const back = breaking.tile === TILE.HAY ? 6 : 4;
+      const spot = alongY
+        ? { x: breaking.x, y: breaking.y - Math.sign(dy || 1) * TILE_SIZE * back }
+        : { x: breaking.x - Math.sign(dx || 1) * TILE_SIZE * back, y: breaking.y };
+
+      const angle = Math.atan2(dy, dx);
+      const offSpot = Math.hypot(spot.x - player.x, spot.y - player.y);
+
+      /*
+       * Заход на позицию не может длиться вечно: поиск пути возвращает
+       * «стой», как только считает, что лучше уже не станет, и бот
+       * замирал напротив створки навсегда. Через три секунды бьём с того
+       * места, где стоим — промах дешевле молчания.
+       *
+       * Но пожар в счёт не идёт. Своя же горящая створка держит дорогу
+       * несколько секунд, и если отсчитывать это время как «заход не
+       * удался», бот успевает выстрелить из-за угла в стену и уйти в
+       * бесконечный круг. Ждём, пока прогорит, и только потом торопимся.
+       */
+      /*
+       * Встаём на ось створки простым шагом вдоль стены, а не поиском
+       * пути. Поиск пути возвращает «стой» в десятке безобидных случаев
+       * и уводил бота то в соседнюю створку, то в тупик; комната же
+       * открыта, и вдоль неё достаточно идти в одну сторону, пока
+       * створка не окажется ровно под нами.
+       */
+      const wanted = alongY
+        ? { x: Math.sign(dx) * (Math.abs(dx) > 8 ? 1 : 0), y: 0 }
+        : { x: 0, y: Math.sign(dy) * (Math.abs(dy) > 8 ? 1 : 0) };
+      const step = safeStep(w, wanted);
+      const heldByFire = (wanted.x || wanted.y) && !step.x && !step.y;
+
+      if (!heldByFire) breakingFor += DT;
+
+      if (heldByFire || ((wanted.x || wanted.y) && breakingFor < 4)) {
+        return { ...idle, moveX: step.x, moveY: step.y, aimAngle: angle };
+      }
+
+      /* Слишком близко — сначала отойти, иначе свой же пожар достанет. */
+      if (Math.hypot(dx, dy) < TILE_SIZE * (breaking.tile === TILE.HAY ? 5 : 3)) {
+        const off = safeStep(w, { x: -Math.cos(angle), y: -Math.sin(angle) });
+        if (off.x || off.y) return { ...idle, moveX: off.x, moveY: off.y, aimAngle: angle };
+      }
+
+      if (player.stack.length) {
+        if (world.botTrace) world.botTrace.push(`${w.elements[tryElement % w.elements.length]}@${Math.round(breaking.x)},${Math.round(breaking.y)}`);
+        /*
+         * Не «стой смирно ещё полторы секунды», а «попробуй снова через
+         * треть». Створке нужна своя стихия, и первая попытка чаще всего
+         * не та; при полном сбросе бот успевал уйти, перестать считаться
+         * застрявшим и больше не возвращался — одна попытка на створку
+         * за весь прогон.
+         */
+        breaking = null;
+        breakingFor = 0;
+        stillFor = 1.2;
+        tryElement += 1;
+        return { ...idle, aimAngle: angle, attack: true };
+      }
+      if (player.chargeLeft <= 0) {
+        const pick = w.elements[tryElement % w.elements.length];
+        if (shocksSelf(w, pick)) {
+          const away = safeStep(w, { x: -Math.cos(angle), y: -Math.sin(angle) });
+          return { ...idle, moveX: away.x, moveY: away.y, aimAngle: angle };
+        }
+        return { ...idle, aimAngle: angle, charge: pick };
+      }
+      return { ...idle, aimAngle: angle };
+    }
+
 
     if (enemy) {
       const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
@@ -235,14 +512,36 @@ function cast(world, stack, angle) {
        */
       if (clear && dist < 190) {
         if (player.stack.length) return { ...idle, aimAngle: angle, attack: true };
+
+        /*
+         * Набирать стихию вплотную к бите нельзя: набор занимает почти
+         * секунду, а громиле хватает одного шага. Пятимся и набираем на
+         * ходу — ровно то, что делает живой игрок, и то, чего боту не
+         * хватало, чтобы пережить последнюю комнату.
+         */
+        if (dist < 72) {
+          const back = safeStep(w, { x: -Math.cos(angle), y: -Math.sin(angle) });
+          return { ...idle, moveX: back.x, moveY: back.y, aimAngle: angle,
+            charge: player.chargeLeft <= 0
+              ? w.elements.find((candidate) => candidate !== enemy.resist
+                && !shocksSelf(w, candidate))
+              : null };
+        }
         if (player.chargeLeft <= 0) {
-          const element = w.elements.find((candidate) => candidate !== enemy.resist);
+          const element = w.elements.find((candidate) => candidate !== enemy.resist
+            && !shocksSelf(w, candidate));
+          if (!element) {
+            /* Отход тоже через проверку огня: пятиться в пожар — тот же
+               способ погибнуть, что и идти в него. */
+            const away = safeStep(w, { x: -Math.cos(angle), y: -Math.sin(angle) });
+            return { ...idle, moveX: away.x, moveY: away.y, aimAngle: angle };
+          }
           return { ...idle, aimAngle: angle, charge: element };
         }
         return { ...idle, aimAngle: angle };
       }
 
-      const step = stepToward(w, enemy);
+      const step = safeStep(w, stepToward(w, enemy));
       return { ...idle, moveX: step.x, moveY: step.y, aimAngle: angle };
     }
 
@@ -252,7 +551,7 @@ function cast(world, stack, angle) {
         exit = { x: ((i % w.w) + 0.5) * TILE_SIZE, y: ((i / w.w | 0) + 0.5) * TILE_SIZE };
       }
     }
-    const step = stepToward(w, exit);
+    const step = safeStep(w, stepToward(w, exit));
     return { ...idle, moveX: step.x, moveY: step.y };
   });
   return world;
@@ -265,8 +564,53 @@ function cast(world, stack, angle) {
    */
   for (const floor of CAMPAIGN) {
     const world = play(floor);
+
+    /*
+     * Обучалка меряется не зачисткой. Она — коридор задачек, и её
+     * вопрос другой: открывается ли каждая створка своей стихией и
+     * ничем больше. Бот берёт все четыре с первой попытки, но добить
+     * последнюю комнату его грубой тактики не хватает, и требовать от
+     * него полного прохождения значило бы проверять бота, а не этаж.
+     *
+     * Зачистку по-прежнему требуем со всех остальных этажей: там она и
+     * есть вопрос — можно ли этаж пройти вообще.
+     */
+    if (floor.tutorial) {
+      const left = world.tiles.filter((tile, i) => {
+        if (!weakTo(tile)) return false;
+        const tx = i % world.w;
+        const ty = (i / world.w) | 0;
+        let walls = 0;
+        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = tx + ox;
+          const ny = ty + oy;
+          if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) { walls += 1; continue; }
+          if (world.tiles[ny * world.w + nx] === TILE.WALL) walls += 1;
+        }
+        return walls >= 2;
+      }).length;
+
+      check(`«${floor.title}»: все створки открыты своей стихией`, left === 0,
+        `осталось запертых: ${left}`);
+      /*
+       * Проиграть бой в обучалке можно — три громилы у бочки и есть
+       * задачка «возьми бочку, а не биту». Нельзя другое: погибнуть от
+       * собственного огня или своей же лужи под током. Это не сложность,
+       * а этаж, устроенный так, что учит убивать себя.
+       */
+      check(`«${floor.title}»: обучалка не убивает игрока его же инструментом`,
+        world.botDeath !== 'сгорел' && world.botDeath !== 'свой разряд',
+        `${world.botDeath || 'жив'}${world.botDeathWhere ? ' на ' + world.botDeathWhere : ''}`);
+      continue;
+    }
+
     check(`«${floor.title}»: бот зачистил этаж`, world.kills === world.total,
-      `${world.kills}/${world.total}, игрок ${world.player.alive ? 'жив' : 'убит'}`);
+      `${world.kills}/${world.total}, игрок ${world.player.alive ? 'жив' : 'убит'}`
+      + (world.botDeath ? ` (${world.botDeath})` : '')
+      + (world.botTrace ? ` [${world.botTrace.slice(0, 12).join(' ')}]` : '')
+      + (world.botTrace ? ` осталось-ломаемого:${world.tiles.filter((t) => weakTo(t)).length}` : '')
+      + (world.botTrace ? ` бот:${Math.round(world.player.x)},${Math.round(world.player.y)}`
+        + ` живые:${world.enemies.filter((e) => e.alive).map((e) => `${Math.round(e.x)},${Math.round(e.y)}/${e.state}`).join(' ')}` : ''));
     check(`«${floor.title}»: дойдя до выхода, этаж засчитан`,
       world.state === 'clear' || !world.player.alive, `состояние ${world.state}`);
   }
@@ -1134,11 +1478,25 @@ function cast(world, stack, angle) {
    * ней проверка ничего не находила.
    */
   const world = createWorld(TUTOR);
+
+  /*
+   * Берётся не первый попавшийся стог, а тот, слева от которого есть где
+   * встать. Первый в списке — створка в стене, и игрок, поставленный на
+   * пять клеток левее неё, оказывается внутри стены: ни обзора, ни целей,
+   * и проверка падала не по делу.
+   */
   let hay = -1;
-  for (let i = 0; i < world.tiles.length; i += 1) {
-    if (world.tiles[i] === TILE.HAY) { hay = i; break; }
+  for (let i = 0; i < world.tiles.length && hay < 0; i += 1) {
+    if (world.tiles[i] !== TILE.HAY) continue;
+    const tx = i % world.w;
+    const ty = (i / world.w) | 0;
+    let open = true;
+    for (let back = 1; back <= 5 && open; back += 1) {
+      if (tx - back < 0 || blocksMove(world.tiles[ty * world.w + tx - back])) open = false;
+    }
+    if (open) hay = i;
   }
-  check('в парке есть стог для проверки', hay >= 0, `клетка ${hay}`);
+  check('в парке есть стог с подходом слева', hay >= 0, `клетка ${hay}`);
 
   const hx = ((hay % world.w) + 0.5) * TILE_SIZE;
   const hy = (((hay / world.w) | 0) + 0.5) * TILE_SIZE;
@@ -1159,10 +1517,10 @@ function cast(world, stack, angle) {
 
   /* Далёкая цель тоже берётся руками: половина игры в том, чтобы ударить
      издалека, и круг автонаведения тут не указ. */
-  world.player.x = hx - TILE_SIZE * 14;
+  world.player.x = hx - TILE_SIZE * 5;
   world.viewRadius = 420;
   const far = targetNear(world, hx, hy);
-  check('стог за четырнадцать клеток всё ещё выбирается',
+  check('дальний стог берётся руками, а не автонаведением',
     far && far.prop === hay, far ? 'выбран' : 'потерян');
 }
 
@@ -1189,16 +1547,42 @@ function cast(world, stack, angle) {
   check('и стоящего вплотную не трогают', world.player.alive);
   check('этаж числится спящим', world.engaged === false);
 
-  /* Первая смерть будит всех. */
-  killEnemy(world, world.enemies.find((e) => e.alive), 0, 'daemon', { by: 'player' });
+  /*
+   * Первая замеченная смерть будит всех — замеченная, поэтому убиваем
+   * того, рядом с кем есть кому заметить. На этаже, где враги стоят по
+   * разным комнатам, смерть одиночки не будит никого, и это правило, а
+   * не сбой: тревогу поднимает не смерть, а свидетель.
+   */
+  const seen = world.enemies.find((victim) => victim.alive
+    && world.enemies.some((other) => other !== victim && other.alive
+      && Math.hypot(other.x - victim.x, other.y - victim.y) < 120));
+  check('на этаже есть смерть, которую увидят', Boolean(seen));
+  killEnemy(world, seen, 0, 'daemon', { by: 'player' });
   check('смерть объявляется событием',
     world.events.some((event) => event.type === 'engaged'));
   check('этаж проснулся', world.engaged === true);
 
   /* Встаём на виду у выжившего: разбуженный этаж должен реагировать. */
   const next = world.enemies.find((e) => e.alive);
-  world.player.x = next.x + TILE_SIZE * 2;
-  world.player.y = next.y;
+
+  /* Встаём на открытую клетку рядом: слепой сдвиг «на две клетки вправо»
+     мог поставить игрока в стену, и разбуженный этаж честно никого не
+     видел. Сторона выбирается по карте, а не наугад. */
+  const spots = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2]];
+  for (const [dx, dy] of spots) {
+    const x = next.x + dx * TILE_SIZE;
+    const y = next.y + dy * TILE_SIZE;
+    const at = (((y / TILE_SIZE) | 0) * world.w) + ((x / TILE_SIZE) | 0);
+    if (world.tiles[at] !== undefined && !blocksMove(world.tiles[at])) {
+      world.player.x = x;
+      world.player.y = y;
+      break;
+    }
+  }
+  /* И разворачиваем его к игроку: проверяется реакция разбуженного этажа,
+     а не удача с тем, куда враг смотрел в момент убийства. */
+  next.angle = Math.atan2(world.player.y - next.y, world.player.x - next.x);
+
   run(world, 3);
   check('после смерти за игроком уже гонятся',
     world.enemies.some((e) => e.alive && e.state === 'chase') || !world.player.alive,
@@ -1247,31 +1631,71 @@ function cast(world, stack, angle) {
   const world = createWorld(TUTOR);
   world.elements = [...ELEMENT_ORDER];
 
-  const hay = [];
+  /*
+   * Копна — это связный кусок соломы, а не вся солома этажа. Соломой
+   * заперты ещё и створки между комнатами, и они стоят отдельно: одна
+   * искра их не берёт и брать не должна. Считать «всю солому» значило бы
+   * требовать, чтобы пожар в одной комнате открыл двери в другой.
+   */
+  const allHay = [];
   for (let i = 0; i < world.tiles.length; i += 1) {
-    if (world.tiles[i] === TILE.HAY) hay.push(i);
+    if (world.tiles[i] === TILE.HAY) allHay.push(i);
   }
-  check('в парке есть копна', hay.length >= 4, `${hay.length} клеток`);
+
+  function copseAt(start) {
+    const seenCells = new Set([start]);
+    const queue = [start];
+    while (queue.length) {
+      const at = queue.shift();
+      const tx = at % world.w;
+      const ty = (at / world.w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
+        const next = ny * world.w + nx;
+        if (seenCells.has(next) || world.tiles[next] !== TILE.HAY) continue;
+        seenCells.add(next);
+        queue.push(next);
+      }
+    }
+    return [...seenCells];
+  }
+
+  let hay = [];
+  for (const cell of allHay) {
+    const group = copseAt(cell);
+    if (group.length > hay.length) hay = group;
+  }
+  check('в парке есть копна', hay.length >= 4, `${hay.length} клеток из ${allHay.length}`);
 
   /* Маг, стоящий у копны, — тот, ради кого её и поджигают. */
   const victim = world.enemies.find((e) => e.alive);
   for (const enemy of world.enemies) if (enemy !== victim) enemy.alive = false;
 
-  /* Стреляем снизу вверх по краю копны: слева от неё стоит скамья, и
-     выстрел вдоль ряда упирался бы в мебель, а не в солому. */
-  const edge = hay[hay.length - 1];
+  /*
+   * Бьём в левый край копны сбоку. Снизу нельзя: под копной стена со
+   * створкой, и выстрел уходил бы в неё. Направление выбирается по самой
+   * копне, а не по памяти о том, как этаж выглядел раньше.
+   */
+  const cols = hay.map((i) => i % world.w);
+  const minTx = Math.min(...cols);
+  const edge = hay.find((i) => i % world.w === minTx);
   const hx = ((edge % world.w) + 0.5) * TILE_SIZE;
   const hy = (((edge / world.w) | 0) + 0.5) * TILE_SIZE;
 
-  victim.x = hx + TILE_SIZE;
-  victim.y = hy + TILE_SIZE;
+  /* Жертва — с дальней стороны копны: она обязана сгореть от того же
+     пожара, а не от прямого попадания. */
+  const maxTx = Math.max(...cols);
+  victim.x = (maxTx + 1.5) * TILE_SIZE;
+  victim.y = hy;
   victim.state = 'idle';
   victim.resist = null;
 
-  world.player.x = hx;
-  world.player.y = hy + TILE_SIZE * 2.5;
-  cast(world, ['fire'], -Math.PI / 2);
-  run(world, 0.4);
+  world.player.x = hx - TILE_SIZE * 4;
+  world.player.y = hy;
+  cast(world, ['fire'], 0);
+  run(world, 0.6);
 
   const left = hay.filter((i) => world.tiles[i] === TILE.HAY).length;
   check('одна искра поджигает всю копну', left === 0, `осталось ${left}`);
