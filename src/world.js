@@ -1683,7 +1683,7 @@ function updatePlayer(world, dt, intent) {
     if (player.chargeLeft <= 0) {
       player.stack.push(player.charging);
       player.charging = null;
-      world.events.push({ type: 'charge', size: player.stack.length });
+      world.events.push({ type: 'charge', size: player.stack.length, element: player.stack[player.stack.length - 1] });
     }
   }
 

@@ -107,6 +107,7 @@ const SFX_BY_EVENT = {
   swing: 'swing',
   impact: 'impact',
   'charge-start': 'charge',
+  charge: 'land',
   'daemon-windup': 'beamup',
   resist: 'resist',
   knock: 'knock',
@@ -696,6 +697,10 @@ let selfHarm = null;
 /* Чем прошли эту попытку. Живёт от начала этажа до его конца. */
 let trace = createTrace();
 
+/* Сколько стихий было в очереди на прошлом кадре: по разнице видно, что
+   одна только что легла, и её ячейку надо зажечь. */
+let landed = 0;
+
 function jab(kind, first) {
   const seen = jabSeen[kind] || 0;
   jabSeen[kind] = seen + 1;
@@ -843,7 +848,16 @@ function updateHud(force) {
     for (let i = 0; i < STACK_LIMIT; i += 1) {
       const element = player2.stack[i];
       if (element) {
-        slots += `<i style="background:${colourOf(element)};box-shadow:0 0 8px ${colourOf(element)}"></i>`;
+        /*
+         * Только что легшая стихия помечается отдельно и вспыхивает.
+         * Набор из трёх — это три события, а не одно действие: между
+         * ними и живёт предвкушение связки, ради которого в игру играют.
+         * Пока ячейка просто оказывалась заполненной, три нажатия
+         * читались как одно движение руки.
+         */
+        const fresh = i === player2.stack.length - 1 && landed === player2.stack.length;
+        slots += `<i class="${fresh ? 'is-landed' : ''}" style="background:${colourOf(element)};`
+          + `box-shadow:0 0 8px ${colourOf(element)}"></i>`;
       } else if (i === player2.stack.length && player2.chargeLeft > 0) {
         const fill = 1 - player2.chargeLeft / CHARGE_STEP;
         slots += `<i class="is-charging" style="border-color:${colourOf(player2.charging)};`
@@ -920,6 +934,10 @@ function drainEvents() {
     if (name) audio.sfx(name, event);
 
     if (event.type === 'daemon') {
+      /* Очередь ушла в выстрел — метка «только что легла» больше ни к
+         чему не относится и должна погаснуть вместе с ней. */
+      landed = 0;
+
       audio.sfx(event.form === 'beam' ? 'beam' : event.form === 'nova' ? 'nova' : 'zap', event);
       if (event.form === 'nova') vibrate(30);
 
@@ -940,6 +958,9 @@ function drainEvents() {
       }
     } else if (event.type === 'backfire') {
       setToast(jab('backfire', 'ВСПЫШКА В ТЕСНОТЕ — СВОИМ ЖЕ'), 2.4);
+    } else if (event.type === 'charge') {
+      landed = event.size;
+      updateHud(true);
     } else if (event.type === 'fling') {
       /* Новый глагол, и о нём надо сказать: врагами можно бросаться. */
       setToast(jab('fling', 'ТЕЛО ТОЖЕ СНАРЯД'), 1.8);

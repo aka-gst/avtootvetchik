@@ -191,6 +191,21 @@ export function createAudio() {
       const base = PITCH[detail && detail.element] || 320;
       tone('triangle', base, base * 2, 0.13, 0.2);
     },
+    /*
+     * Стихия легла в очередь. Отдельный звук от начала набора, и это не
+     * прихоть: набор из трёх — это три события, а не одно действие, и
+     * ровно в промежутке между ними живёт предвкушение связки. Пока
+     * звучало только начало, три нажатия слышались как одно.
+     *
+     * Высота растёт с местом в очереди: на слух понятно, сколько уже
+     * набрано, не отрывая глаз от поля.
+     */
+    land(detail) {
+      const base = PITCH[detail && detail.element] || 320;
+      const step = 1 + ((detail && detail.size) || 1) * 0.22;
+      tone('square', base * step, base * step * 1.5, 0.07, 0.2);
+      tone('sine', base * step * 2, base * step * 2, 0.05, 0.1);
+    },
     zap(detail) {
       const base = PITCH[detail && detail.elements && detail.elements[0]] || 320;
       tone('sawtooth', base * 4, base, 0.13, 0.28);
