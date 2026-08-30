@@ -18,7 +18,7 @@
  * стекло или не вскрыли бочку, а тысяча клеток каждый кадр — чистая трата.
  */
 
-import { TILE, TILE_SIZE, weakTo } from './level.js';
+import { TILE, TILE_SIZE, weakTo, brokenBy } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP, spellOf } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
@@ -1303,6 +1303,54 @@ export function createRenderer(canvas) {
    * угол экрана игроку некогда, а ответ «твой способ засчитан» нужен ему
    * ровно там, где способ сработал.
    */
+/*
+ * ПОДХОДЯЩЕЕ ПОДСВЕЧИВАЕТСЯ
+ * =========================================================
+ * Набрал огонь — обвелась солома и бочка. Набрал молнию — кристалл.
+ * Это не подсказка «сделай так», а свойство мира: подсветка говорит «сюда
+ * подходит», а решает по-прежнему игрок. Разница принципиальная —
+ * подсказку, указывающую на предмет, сегодня убрали нарочно, и возвращать
+ * её нельзя.
+ *
+ * Подходит или нет, решает тот же brokenBy, который решает и само
+ * разрушение. Отдельный список «вот эти предметы» рано или поздно
+ * разошёлся бы с правилами, и игрок обнаружил бы подсвеченное, которое
+ * не ломается, — а это хуже, чем отсутствие подсветки: мир перестаёт
+ * быть надёжным, и предвкушение связки исчезает вместе с доверием.
+ *
+ * Обводка тонкая и без свечения намеренно. Светится в кадре одна вещь —
+ * круг опасности; добавить сюда второй ореол значит погасить первый.
+ */
+  function drawMatching(g, world, range) {
+    const player = world.player;
+    if (!player.alive || !player.stack || !player.stack.length) return;
+
+    const spell = spellOf(player.stack);
+    if (!spell) return;
+
+    const traits = spell.substance.traits;
+    const beat = 0.5 + Math.sin(world.time * 4) * 0.18;
+
+    g.save();
+    g.strokeStyle = spell.substance.colour;
+    g.lineWidth = 1.6;
+    g.setLineDash([5, 5]);
+    g.lineDashOffset = -world.time * 22;
+    g.globalAlpha = beat;
+
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
+        const tile = world.tiles[ty * world.w + tx];
+        if (!weakTo(tile) || !brokenBy(tile, traits)) continue;
+        g.strokeRect(tx * TILE_SIZE + 2.5, ty * TILE_SIZE + 2.5,
+          TILE_SIZE - 5, TILE_SIZE - 5);
+      }
+    }
+
+    g.setLineDash([]);
+    g.restore();
+  }
+
   function drawMarks(g, world) {
     if (!world.marks || !world.marks.length) return;
 
@@ -1715,6 +1763,7 @@ const DARKNESS = false;
     drawCorpses(ctx, world);
     drawProps(ctx, world, theme, range);
     drawEnemies(ctx, world);
+    drawMatching(ctx, world, range);
     drawLock(ctx, world);
     drawMarks(ctx, world);
     drawPlayer(ctx, world);
