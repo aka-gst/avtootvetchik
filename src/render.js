@@ -20,7 +20,7 @@
 
 import { TILE, TILE_SIZE, weakTo } from './level.js';
 import { BODY } from './world.js';
-import { colourOf, CHARGE_STEP } from './magic.js';
+import { colourOf, CHARGE_STEP, spellOf } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
 import { art, tinted, drawAuto, drawDirFrame, neighbourMask } from './art.js';
 
@@ -1131,6 +1131,112 @@ export function createRenderer(canvas) {
     shock: '#ffe14d',
   };
 
+/*
+ * ОПАСНАЯ ЗОНА
+ * =========================================================
+ * Игра не только про то, как убить всех разом, но и про то, как при этом
+ * уцелеть самому. Второе не работает, если зону поражения видно только
+ * после выстрела: тогда это не тактика, а сюрприз, и единственный способ
+ * научиться — умереть.
+ *
+ * Поэтому набранное заклинание рисует круг там, куда прилетит, ещё до
+ * нажатия. Круг обычный, пока игрок вне его, и тревожный, когда внутри:
+ * вспышка бьёт вокруг себя и накрывает своего всегда, а огонь достаёт
+ * дальше места попадания — солома вокруг займётся сама.
+ */
+  function dangerZone(world) {
+    const player = world.player;
+    if (!player.stack || !player.stack.length) return null;
+
+    const spell = spellOf(player.stack);
+    if (!spell || !spell.form) return null;
+
+    const reach = spell.substance.traits.reach || 1;
+    const burns = Boolean(spell.substance.traits.burn);
+
+    /* Вспышка бьёт от себя — центр всегда на игроке. */
+    if (spell.form.kind === 'nova') {
+      return {
+        x: player.x, y: player.y,
+        r: (spell.form.radius || 104) * reach,
+        colour: spell.substance.colour, burns, self: true,
+      };
+    }
+
+    /* Остальное прилетает туда, куда смотрит прицел. Точку берём по
+       захваченной цели, а без неё — по лучу, как летел бы снаряд. */
+    const aim = world.locked
+      ? { x: world.locked.x, y: world.locked.y }
+      : rayEnd(world, player.x, player.y, player.angle, 320 * reach);
+
+    const r = TILE_SIZE * 0.9 * reach * (burns ? 1.7 : 1);
+    return {
+      x: aim.x, y: aim.y, r,
+      colour: spell.substance.colour, burns,
+      self: Math.hypot(aim.x - player.x, aim.y - player.y) < r + BODY,
+    };
+  }
+
+  /* Докуда долетит: шагаем тем же шагом, что и снаряд. */
+  function rayEnd(world, x, y, angle, limit) {
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    for (let t = 6; t < limit; t += 6) {
+      const nx = x + dx * t;
+      const ny = y + dy * t;
+      const tile = world.tiles[tileRangeIndex(world, nx, ny)];
+      if (tile === TILE.WALL) return { x: x + dx * (t - 6), y: y + dy * (t - 6) };
+    }
+    return { x: x + dx * limit, y: y + dy * limit };
+  }
+
+  function tileRangeIndex(world, x, y) {
+    const tx = Math.max(0, Math.min(world.w - 1, (x / TILE_SIZE) | 0));
+    const ty = Math.max(0, Math.min(world.h - 1, (y / TILE_SIZE) | 0));
+    return ty * world.w + tx;
+  }
+
+  function drawDanger(g, world) {
+    const zone = dangerZone(world);
+    if (!zone) return;
+
+    const beat = 0.6 + Math.sin(world.time * 7) * 0.4;
+
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+
+    if (zone.self) {
+      /* Внутри своей же зоны. Тут не оттенок, тут предупреждение. */
+      g.strokeStyle = '#ff4d5e';
+      g.globalAlpha = 0.5 + beat * 0.5;
+      g.lineWidth = 2.6;
+      g.setLineDash([9, 7]);
+      g.lineDashOffset = -world.time * 60;
+    } else {
+      g.strokeStyle = zone.colour;
+      g.globalAlpha = 0.45;
+      g.lineWidth = 1.6;
+      g.setLineDash([6, 8]);
+    }
+
+    g.beginPath();
+    g.arc(zone.x, zone.y, zone.r, 0, 6.29);
+    g.stroke();
+    g.setLineDash([]);
+
+    /* У огня рисуем ещё и внешний круг: пожар уходит дальше попадания. */
+    if (zone.burns) {
+      g.globalAlpha = 0.22;
+      g.lineWidth = 1.2;
+      g.strokeStyle = zone.self ? '#ff4d5e' : '#ff8a3d';
+      g.beginPath();
+      g.arc(zone.x, zone.y, zone.r * 1.35, 0, 6.29);
+      g.stroke();
+    }
+
+    g.restore();
+  }
+
   function drawLock(g, world) {
     if (!world.locked) return;
     const { x, y } = world.locked;
@@ -1513,6 +1619,7 @@ const DARKNESS = false;
     drawFloor(ctx, world, theme, range);
     drawGround(ctx, world, range);
     drawCharge(ctx, world, range);
+    drawDanger(ctx, world);
     drawDecals(ctx, world);
     drawCorpses(ctx, world);
     drawProps(ctx, world, theme, range);
