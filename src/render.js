@@ -1298,6 +1298,36 @@ export function createRenderer(canvas) {
     g.restore();
   }
 
+  /*
+   * Всплывающая плата. Рисуется в мире, а не в интерфейсе: смотреть в
+   * угол экрана игроку некогда, а ответ «твой способ засчитан» нужен ему
+   * ровно там, где способ сработал.
+   */
+  function drawMarks(g, world) {
+    if (!world.marks || !world.marks.length) return;
+
+    g.save();
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+
+    for (const mark of world.marks) {
+      const fade = Math.min(1, mark.life / (mark.max * 0.45));
+      g.globalAlpha = fade;
+      g.font = `800 ${mark.big ? 13 : 11}px ui-monospace, Menlo, monospace`;
+
+      /* Тёмная подложка буквой: подпись ложится и на светлую лужу, и на
+         тёмную траву, и читаться должна на обеих. */
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(6,8,14,.85)';
+      g.strokeText(mark.text, mark.x, mark.y);
+
+      g.fillStyle = mark.big ? '#ffe14d' : '#e8f2f6';
+      g.fillText(mark.text, mark.x, mark.y);
+    }
+
+    g.restore();
+  }
+
   function drawLock(g, world) {
     if (!world.locked) return;
     const { x, y } = world.locked;
@@ -1686,6 +1716,7 @@ const DARKNESS = false;
     drawProps(ctx, world, theme, range);
     drawEnemies(ctx, world);
     drawLock(ctx, world);
+    drawMarks(ctx, world);
     drawPlayer(ctx, world);
     drawBullets(ctx, world);
     drawBlasts(ctx, world);

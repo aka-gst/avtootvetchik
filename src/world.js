@@ -422,6 +422,14 @@ export function createWorld(level) {
     fx: { shake: 0, hitstop: 0, flash: 0, punch: 0 },
     beats: [],
     charged: null,
+
+    /*
+     * Всплывающие подписи прямо в мире: «+300 ПО ВОДЕ» там, где это
+     * случилось. Ответ на вопрос «а это вообще засчиталось?» должен
+     * приходить в момент действия и на месте действия — в углу экрана
+     * его читают уже после того, как перестали смотреть.
+     */
+    marks: [],
     events: [],
   };
 
@@ -803,6 +811,10 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
    */
   world.events.push({
     type: 'kill',
+    /* Место смерти нужно снаружи: плату за способ показывают там, где
+       способ сработал, а не в углу экрана. */
+    x: enemy.x,
+    y: enemy.y,
     cause,
     by: source.by || 'player',
     weapon: source.weapon || null,
@@ -1584,6 +1596,12 @@ export function update(world, dt, intent) {
 
   for (const noise of world.noises) noise.life -= dt;
   world.noises = world.noises.filter((n) => n.life > 0);
+
+  world.marks = world.marks.filter((mark) => {
+    mark.life -= dt;
+    mark.y -= dt * 26;
+    return mark.life > 0;
+  });
 
   for (const corpse of world.corpses) {
     corpse.twitch = Math.max(0, corpse.twitch - dt);

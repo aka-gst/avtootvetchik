@@ -46,11 +46,17 @@ export function createScore(level, attempts = 1) {
     attempts,
   };
 
+  /*
+   * Начисление возвращается наружу, а не только копится внутри. Причина
+   * не в удобстве: игрок должен узнать, что его способ засчитан, в тот
+   * момент, когда способ сработал, — а не через минуту в таблице. Считать
+   * же это дважды, здесь и на экране, значит однажды разойтись.
+   */
   function kill(event) {
     if (event.by !== 'player') {
       state.crossfire += 1;
       state.score += CROSSFIRE;
-      return;
+      return { gain: CROSSFIRE, reason: 'ЧУЖИМИ РУКАМИ' };
     }
 
     state.combo = Math.min(COMBO_CAP, state.combo + 1);
@@ -60,18 +66,35 @@ export function createScore(level, attempts = 1) {
 
     if (event.execution) state.executions += 1;
 
-    state.score += (event.execution ? EXECUTION : KILL) * state.combo;
+    const gain = (event.execution ? EXECUTION : KILL) * state.combo;
+    state.score += gain;
+
+    /* Причина называется той же, что и в итоговой таблице: два разных
+       слова за одно и то же читаются как два разных правила. */
+    const reason = event.execution ? 'ДОБИВАНИЕ'
+      : event.cause === 'chain' ? 'ПО ВОДЕ'
+      : event.cause === 'fire' ? 'ОГНЁМ'
+      : event.cause === 'fling' ? 'ТЕЛОМ'
+      : 'ВЫРЕЗАН';
+
+    return { gain, reason, combo: state.combo };
   }
 
   function feed(events) {
+    const awards = [];
+
     for (const event of events) {
-      if (event.type === 'kill') kill(event);
-      else if (event.type === 'daemon') {
+      if (event.type === 'kill') {
+        const award = kill(event);
+        if (award) awards.push({ ...award, x: event.x, y: event.y });
+      } else if (event.type === 'daemon') {
         /* Считаем не выстрелы, а выпуски: у игрока нет оружия, только формы. */
         state.releases += 1;
         state.forms.add(event.form);
       }
     }
+
+    return awards;
   }
 
   /*

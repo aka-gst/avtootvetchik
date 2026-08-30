@@ -1103,7 +1103,22 @@ function step(now) {
   if (scene === 'play' && !tomeVisible) {
     const intent = buildIntent(raw);
     update(world, dt, intent);
-    score.feed(world.events);
+    /*
+     * Плата за способ показывается сразу и на месте. До сих пор весь счёт
+     * игрок видел только в конце этажа — то есть узнавал, что его ход
+     * засчитан, через минуту после того, как перестал на него смотреть.
+     */
+    for (const award of score.feed(world.events)) {
+      if (!award.x && !award.y) continue;
+      world.marks.push({
+        x: award.x,
+        y: award.y - 14,
+        text: `+${award.gain} ${award.reason}`,
+        big: award.combo > 1,
+        life: 1.1,
+        max: 1.1,
+      });
+    }
     score.update(dt);
     drainEvents();
 
@@ -1424,8 +1439,15 @@ window.technomagic = {
 };
 
 
-/* Синоним под прежним именем. Держится ради ссылок, которые могли
-   остаться снаружи, и уйдёт, когда станет ясно, что таких нет. */
+/*
+ * Синоним под прежним именем — временный, до 6 сентября 2026 года.
+ * Держится ради ссылок, которые могли остаться снаружи.
+ *
+ * Срок стоит здесь не для порядка: одна вещь под двумя именами — ровно та
+ * болезнь, из-за которой это переименование и понадобилось. Синоним без
+ * срока живёт вечно, и через полгода никто не помнит, какое имя
+ * настоящее.
+ */
 window.avto = window.technomagic;
 const fromHash = levelFromHash();
 if (fromHash) { level = fromHash; custom = true; }
