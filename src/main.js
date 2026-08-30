@@ -18,6 +18,7 @@ import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } 
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
 import { iconTag } from './icons.js';
+import { pulse } from './pulse.js';
 import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
@@ -368,6 +369,10 @@ function startLevel(next, { silent } = {}) {
   picked = null;
   score = createScore(level, attempts);
   if (!silent) audio.playTrack(level.track || 0);
+
+  /* Начало попытки. Номер попытки здесь важнее всего остального: он и
+     отвечает на вопрос, сколько раз человек готов вернуться. */
+  pulse('etazh-nachat', { etazh: level.title, popytka: attempts });
   updateHud(true);
 }
 
@@ -391,6 +396,16 @@ function callScreen() {
 
 function deathScreen() {
   scene = 'dead';
+
+  /* Смерть с числами: сколько успел вырезать и сколько прожил. По ним
+     видно разницу между «не понял управление» и «не хватило чуть-чуть». */
+  pulse('smert', {
+    etazh: level.title,
+    popytka: attempts,
+    vyrezano: world.kills,
+    vsego: world.total,
+    sekund: Math.round(world.time),
+  });
   showVeil({
     tone: 'dead',
     kicker: `ПОПЫТКА ${attempts}`,
@@ -410,6 +425,13 @@ function clearScreen() {
   scene = 'clear';
 
   result = score.finish(world);
+
+  pulse('etazh-zachischen', {
+    etazh: level.title,
+    popytka: attempts,
+    sekund: Math.round(world.time),
+    rang: result.rank,
+  });
   const record = writeBest(levelCode, result, world.time);
   const more = hasNextFloor();
 
@@ -678,6 +700,11 @@ function renderTome() {
 }
 
 function showTome() {
+  /* Книга — половина игры, и до сих пор неизвестно, открывает ли её
+     кто-нибудь вообще. Считаем только сам факт открытия и сколько к тому
+     моменту найдено: что именно найдено — это уже про человека. */
+  pulse('kniga-otkryta', { naydeno: bookCount(book).substances });
+
   renderTome();
   ui.tome.hidden = false;
   tomeVisible = true;
