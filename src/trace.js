@@ -32,6 +32,7 @@ const BY_EVENT = {
   'shocked-self': 'sam',   /* и своей же лужей */
   knock: 'sbil',           /* сбил с ног */
   slam: 'stena',           /* разогнал в стену */
+  power: 'pitanie',        /* переключил питание этажа */
 };
 
 export function createTrace() {
@@ -56,6 +57,13 @@ export function traceEvent(trace, event) {
     /* Именное заклинание — отдельное правило: его ещё надо найти. */
     if (event.signature) trace.rules.add(`imya-${event.signature}`);
   }
+
+  /*
+   * Взлом и замыкание — разные решения, и складывать их нельзя: одно
+   * тихое и обратимое, другое громкое и окончательное. Игрок, прошедший
+   * комнату тихо, прошёл её не так же, как тот, кто разнёс щиток.
+   */
+  if (event.type === 'panel') trace.rules.add(event.точно ? 'vzlom' : 'zamykanie');
 
   if (event.type === 'kill' && event.execution) trace.rules.add('dobil');
   if (event.type === 'engaged') trace.rules.add('shum');

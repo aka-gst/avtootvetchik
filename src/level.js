@@ -237,7 +237,12 @@ export function blocksSight(tile) {
 export function blocksShot(tile) {
   return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.TABLE
     || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL
-    || tile === TILE.METAL || tile === TILE.FORCE;
+    || tile === TILE.METAL || tile === TILE.FORCE
+    /* Щиток — коробка на стене, и снаряд в неё попадает. Без этой строки
+       он пролетал насквозь, а замыкание срабатывало случайно: от брызг
+       вещества, легшего на стену позади. То есть попасть в него нарочно
+       было нельзя, а получалось само. */
+    || tile === TILE.PANEL;
 }
 
 /* Стекло не останавливает пулю — оно от неё рассыпается. */
