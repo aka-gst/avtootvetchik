@@ -1253,6 +1253,24 @@ function shatter(world, at, substance) {
   const x = ((at % world.w) + 0.5) * TILE_SIZE;
   const y = (((at / world.w) | 0) + 0.5) * TILE_SIZE;
 
+  /*
+   * Мокрое дерево не занимается — и проверить это надо до того, как
+   * клетка обнулится: первая моя попытка стояла ниже и возвращала на
+   * место уже стёртое, то есть чинила следствие.
+   *
+   * Это единственное, что вода умеет делать с предметами, и ради него её
+   * и льют заранее: намочил копну — и чужой огонь по ней не пойдёт.
+   * Удар и разряд мокрому дереву по-прежнему не помеха: вода тушит, а не
+   * укрепляет.
+   */
+  if (world.tileWet && world.tileWet[at] > 0
+      && substance.traits.burn && !substance.traits.crush && !substance.traits.shock) {
+    addCloud(world, x, y, TILE_SIZE * 0.8, 'steam');
+    world.tileWet[at] = Math.max(0, world.tileWet[at] - 1);
+    world.events.push({ type: 'doused', x, y });
+    return false;
+  }
+
   world.tiles[at] = TILE.FLOOR;
   world.rebake = true;
   world.fx.shake = Math.max(world.fx.shake, 5);

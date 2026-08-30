@@ -1856,6 +1856,50 @@ function cast(world, stack, angle) {
 }
 
 
+/* --- Q0. Мокрое дерево не горит --- */
+{
+  /*
+   * Единственное, что вода умеет делать с предметами, — тушить их
+   * заранее. Ради этого её и льют: намочил копну, и чужой огонь по ней не
+   * пойдёт. Клетка «лить × дерево» до этого была пустой, а вся строка
+   * «лить» не делала с предметами ничего.
+   */
+  function копнаПослеОгня(мочить) {
+    const world = createWorld(TUTOR);
+    world.elements = [...ELEMENT_ORDER];
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    let hay = -1;
+    for (let i = 0; i < world.tiles.length && hay < 0; i += 1) {
+      if (world.tiles[i] === TILE.HAY) hay = i;
+    }
+
+    const hx = ((hay % world.w) + 0.5) * TILE_SIZE;
+    const hy = (((hay / world.w) | 0) + 0.5) * TILE_SIZE;
+    const было = world.tiles.filter((tile) => tile === TILE.HAY).length;
+
+    if (мочить) {
+      paint(world, tilesInCircle(world, hx, hy, TILE_SIZE * 2),
+        substanceOf(['water']), { x: hx, y: hy }, true);
+    }
+
+    world.player.x = hx - TILE_SIZE * 4;
+    world.player.y = hy;
+    cast(world, ['fire'], 0);
+    run(world, 2);
+
+    return { было, стало: world.tiles.filter((tile) => tile === TILE.HAY).length };
+  }
+
+  const сухая = копнаПослеОгня(false);
+  const мокрая = копнаПослеОгня(true);
+
+  check('сухая копна выгорает', сухая.стало === 0, `${сухая.было} → ${сухая.стало}`);
+  check('мокрая копна держится', мокрая.стало > сухая.стало,
+    `${мокрая.было} → ${мокрая.стало} против сухой ${сухая.стало}`);
+}
+
+
 /* --- Q. Солома --- */
 {
   const world = createWorld(TUTOR);

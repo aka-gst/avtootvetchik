@@ -82,6 +82,10 @@ export function createField(world) {
   const size = world.w * world.h;
   world.ground = new Uint8Array(size);
   world.groundLife = new Float32Array(size);
+
+  /* Мокрое считается по клеткам отдельно от пола: под скамьёй лужи быть
+     не может — она держит проход, — а мокрой скамья быть обязана. */
+  world.tileWet = new Float32Array(size);
   world.groundAge = new Float32Array(size);
   world.clouds = [];
 }
@@ -197,8 +201,16 @@ export function paint(world, tiles, substance, at = null, force = false) {
 
   let steamed = false;
 
+  /* Мокрым становится не только пол, но и то, что на нём стоит. Дерево
+     под водой не занимается, и это единственное, что вода умеет делать
+     с предметами: тушить их заранее. */
+  const wets = t.douse || t.wet || t.mire;
+
   for (const idx of tiles) {
     if (idx < 0 || idx >= world.ground.length) continue;
+
+    if (wets && world.tileWet) world.tileWet[idx] = WET_TIME;
+
     if (blocksMove(world.tiles[idx])) continue;
 
     const result = meet(world.ground[idx], laid, substance);
@@ -364,6 +376,14 @@ export function cloudsBlock(world, ax, ay, bx, by) {
 
 export function updateField(world, dt) {
   const ground = world.ground;
+
+  /* Мокрое сохнет. Три секунды — столько же, сколько держится мокрым
+     тело: одно правило на всё, что промокло. */
+  if (world.tileWet) {
+    for (let i = 0; i < world.tileWet.length; i += 1) {
+      if (world.tileWet[i] > 0) world.tileWet[i] = Math.max(0, world.tileWet[i] - dt);
+    }
+  }
 
   for (let i = 0; i < ground.length; i += 1) {
     if (!ground[i]) continue;
