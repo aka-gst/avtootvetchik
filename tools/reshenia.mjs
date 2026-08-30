@@ -18,7 +18,7 @@
  */
 
 import { CAMPAIGN } from '../src/levels.js';
-import { createWorld, update, TILE_SIZE } from '../src/world.js';
+import { createWorld, update, TILE_SIZE, hasShot } from '../src/world.js';
 import { TILE, weakTo } from '../src/level.js';
 import { ELEMENT_ORDER } from '../src/magic.js';
 import { createTrace, traceEvent, traceKey } from '../src/trace.js';
@@ -60,7 +60,7 @@ function цели(world) {
  * про комнату — «одна комната с пятью решениями». Поэтому начальную
  * клетку можно задать: node tools/reshenia.mjs 120 10,12
  */
-function прогон(floor, seed, откуда, секунд = 60) {
+function прогон(floor, seed, откуда, секунд = 60, толково = true) {
   const rnd = seeded(seed);
   const было = Math.random;
   Math.random = rnd;
@@ -86,15 +86,39 @@ function прогон(floor, seed, откуда, секунд = 60) {
           intent.charge = id;
           набор.push(id);
         } else if (набор.length && цель.length && rnd() < 0.08) {
-          const t = цель[Math.floor(rnd() * цель.length)];
-          intent.aimAngle = Math.atan2(t.y - world.player.y, t.x - world.player.x);
-          intent.attack = true;
-          набор = [];
+          /*
+           * Случайным должен быть ВЫБОР, а не меткость. Первая версия
+           * била в случайную цель не глядя, и половина выстрелов уходила
+           * в стену: измерение получалось про умение прицелиться, а не
+           * про число решений, и обвиняло уровень в том, чего он не
+           * делал. Стреляем только туда, куда долетит.
+           */
+          const видимые = толково
+            ? цель.filter((t) => hasShot(world, world.player.x, world.player.y, t.x, t.y))
+            : цель;
+          if (видимые.length) {
+            const t = видимые[Math.floor(rnd() * видимые.length)];
+            intent.aimAngle = Math.atan2(t.y - world.player.y, t.x - world.player.x);
+            intent.attack = true;
+            набор = [];
+          }
         }
       }
 
-      /* И бродим, иначе половина целей никогда не окажется в досягаемости. */
-      if (rnd() < 0.03) {
+      /*
+       * И бродим — но к ближайшей цели, а не куда попало. Полное
+       * блуждание тоже мерило не то: случайный игрок за минуту не
+       * доходил до второй комнаты, и половина прогонов заканчивалась ни
+       * на чём. Куда идти — не выбор игрока, это дорога; выбор в том,
+       * что он там сделает.
+       */
+      if (толково && rnd() < 0.05 && цель.length) {
+        const t = цель[Math.floor(rnd() * цель.length)];
+        const a = Math.atan2(t.y - world.player.y, t.x - world.player.x)
+          + (rnd() - 0.5) * 1.4;
+        intent.moveX = Math.cos(a);
+        intent.moveY = Math.sin(a);
+      } else if (rnd() < 0.03) {
         const a = rnd() * Math.PI * 2;
         intent.moveX = Math.cos(a);
         intent.moveY = Math.sin(a);
@@ -111,14 +135,33 @@ function прогон(floor, seed, откуда, секунд = 60) {
 }
 
 const сколько = Number(process.argv[2]) || 60;
-const откуда = process.argv[3] ? process.argv[3].split(',').map(Number) : null;
+const откуда = process.argv[3] && process.argv[3].includes(',')
+  ? process.argv[3].split(',').map(Number) : null;
+const секунд = Number(process.argv[4] || (откуда ? 0 : process.argv[3])) || 60;
+
+/*
+ * Две модели игрока, и разница между ними — половина смысла инструмента.
+ *
+ * «Толковый» целится только туда, куда долетит, и бродит в сторону целей.
+ * «Наугад» бьёт не глядя и ходит куда попало.
+ *
+ * Числа у них расходятся вдвое и втрое, и наивный вывод «чем больше
+ * решений, тем лучше» тут ломается: наугад даёт БОЛЬШЕ различных следов,
+ * потому что чаще попадает случайно. Это не богатство комнаты, это шум
+ * модели. Живой человек ближе к толковому, и мерить надо им, а второй
+ * держать как границу снизу.
+ *
+ * Переключается переменной RANDOM_PLAY=1 — латиницей, потому что
+ * оболочка не всякое имя переменной принимает.
+ */
+const толково = process.env.RANDOM_PLAY !== '1';
 const floor = CAMPAIGN[0];
 
 const следы = new Map();
 let живых = 0;
 
 for (let i = 0; i < сколько; i += 1) {
-  const r = прогон(floor, 20260830 + i * 7919, откуда);
+  const r = прогон(floor, 20260830 + i * 7919, откуда, секунд, толково);
   if (r.жив) живых += 1;
   if (!r.правил) continue;
   следы.set(r.след, (следы.get(r.след) || 0) + 1);
@@ -127,7 +170,8 @@ for (let i = 0; i < сколько; i += 1) {
 const всего = [...следы.values()].reduce((a, b) => a + b, 0);
 const частый = Math.max(0, ...следы.values());
 
-console.log(`этаж: ${floor.title}${откуда ? `, старт с клетки ${откуда.join(',')}` : ''}`);
+console.log(`этаж: ${floor.title}${откуда ? `, старт с клетки ${откуда.join(',')}` : ''}`
+  + `, по ${секунд} секунд, игрок ${толково ? 'толковый' : 'наугад'}`);
 console.log(`прогонов: ${сколько}, из них с хоть одним правилом: ${всего}, выжил в ${живых}`);
 console.log(`различных решений: ${следы.size}`);
 console.log(`доля самого частого: ${всего ? Math.round(частый / всего * 100) : 0}%`);
