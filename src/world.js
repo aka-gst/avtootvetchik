@@ -1350,6 +1350,38 @@ function shatter(world, at, substance) {
     return true;
   }
 
+  /*
+   * Дерево горит так же, как солома, и по той же причине идёт дальше:
+   * огонь не спрашивает, копна перед ним или скамья. Круг меньше —
+   * скамья и меньше копны, — но правило одно.
+   */
+  if ((tile === TILE.TABLE || tile === TILE.DOOR) && substance.traits.burn) {
+    paint(world, tilesInCircle(world, x, y, TILE_SIZE * 0.8), FLARE, { x, y }, true);
+    spark(world, x, y, 0, 3.2, 12, '#ffb347', 170);
+    emitNoise(world, x, y, 240, 'hay');
+    world.events.push({ type: 'hay', x, y });
+
+    const wx = at % world.w;
+    const wy = (at / world.w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = wx + dx;
+      const ny = wy + dy;
+      if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
+      const next = ny * world.w + nx;
+      if (!brokenBy(world.tiles[next], { burn: 1 })) continue;
+      schedule(world, 0.12, () => shatter(world, next, FLARE));
+    }
+    return true;
+  }
+
+  if (tile === TILE.GLASS) {
+    /* Стекло слышно дальше, чем видно: звон собирает этаж. */
+    spark(world, x, y, 0, 3.2, 18, '#cfe9ff', 240);
+    emitNoise(world, x, y, 300, 'glass');
+    world.events.push({ type: 'glass', x, y });
+    return true;
+  }
+
   spark(world, x, y, 0, 3.2, 12, '#c9a27a', 170);
   emitNoise(world, x, y, 240, 'boulder');
   world.events.push({ type: 'boulder', x, y });

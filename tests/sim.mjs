@@ -278,6 +278,14 @@ function cast(world, stack, angle) {
     let bestGap = Infinity;
     for (let i = 0; i < w.tiles.length; i += 1) {
       if (!weakTo(w.tiles[i])) continue;
+
+      /*
+       * Преграда обязана преграждать. Как только ломаемыми стали двери и
+       * скамьи, бот бросился жечь их по всему этажу и переставал доходить
+       * до врагов: дверь ломается, но через неё и так ходят, а значит
+       * ломать её незачем. Спрашиваем не «ломается ли», а «держит ли».
+       */
+      if (!blocksMove(w.tiles[i])) continue;
       const x = ((i % w.w) + 0.5) * TILE_SIZE;
       const y = (((i / w.w) | 0) + 0.5) * TILE_SIZE;
       /*
@@ -411,6 +419,35 @@ function cast(world, stack, angle) {
      * замаха — это движение, а движение сбрасывало «стою на месте», и бот
      * вечно топтался между «застрял» и «отхожу», ни разу не выстрелив.
      */
+    /*
+     * Ломать имеет смысл, только когда дороги нет. Раньше бот брался за
+     * преграду по одному признаку «стою на месте», и пока ломаемыми были
+     * три вещи, это сходило с рук. Как только загорелось дерево и
+     * забилось стекло, ломаемого стало вдесятеро больше — и бот принялся
+     * жечь скамьи по всему складу, ни разу не дойдя до врага.
+     *
+     * Спрашиваем прямо: доходит ли поле пути от врага до нашей клетки.
+     * Отрицательное значение и значит «не доходит».
+     */
+    /* Цель — ближайший живой, а когда живых нет, выход: и туда дорога
+       тоже может оказаться заперта. */
+    let goal = enemy;
+    if (!goal) {
+      for (let i = 0; i < w.tiles.length && !goal; i += 1) {
+        if (w.tiles[i] !== TILE.EXIT) continue;
+        goal = { x: ((i % w.w) + 0.5) * TILE_SIZE, y: (((i / w.w) | 0) + 0.5) * TILE_SIZE };
+      }
+    }
+
+    if (goal) {
+      const field = buildFlowField(w, goal.x, goal.y);
+      if (field[tileIndex(w, player.x, player.y)] >= 0) {
+        breaking = null;
+        breakingFor = 0;
+        stillFor = 0;
+      }
+    }
+
     if (!breaking && stillFor > 1.5) {
       breaking = blocker(w);
       if (world.botTrace) world.botTrace.push(breaking ? `цель:${Math.round(breaking.x)},${Math.round(breaking.y)}` : `застрял:${Math.round(player.x)},${Math.round(player.y)}`);
