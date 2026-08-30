@@ -714,6 +714,19 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
     angle: enemy.angle,
     kind: enemy.kind,
     twitch: 0.5,
+
+    /*
+     * Падение — отдельное состояние, а не мгновенная подмена фигуры
+     * лежащим телом. Без него смерть выглядит как «было / стало»: маг
+     * стоял, маг лежит, а что между — игрок не увидел. Из «было / стало»
+     * модель правил в голове не собирается, а вся игра на ней и держится.
+     *
+     * Треть секунды — минимум, при котором видно, что тело валится, и
+     * при котором это ещё не мешает темпу.
+     */
+    fall: 0.34,
+    sheet: enemy.kind,
+    lean: (Math.random() - 0.5) * 0.6,
   });
 
   world.fx.hitstop = Math.max(world.fx.hitstop, 0.045);
@@ -1224,13 +1237,29 @@ function shatter(world, at, substance) {
     emitNoise(world, x, y, 300, 'hay');
     world.events.push({ type: 'hay', x, y });
 
+    /*
+     * Солома поджигает солому — но не в тот же кадр. Раньше копна из
+     * девяти клеток исчезала целиком за одно мгновение, и правило,
+     * которое стоило показать, не было видно вовсе: игрок наблюдал не
+     * пожар, а подмену картинки.
+     *
+     * Теперь огонь идёт по копне клетка за клеткой. Восьмая доля секунды
+     * на шаг — этого хватает, чтобы увидеть направление, и мало, чтобы
+     * успеть уйти из уже занявшегося: копна остаётся ловушкой, но
+     * ловушкой понятной.
+     *
+     * Рекурсия по-прежнему конечна: клетка гасится в пол сразу, и
+     * отложенный вызов на уже сгоревшую просто ничего не находит.
+     */
     const tx = at % world.w;
     const ty = (at / world.w) | 0;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = tx + dx;
       const ny = ty + dy;
       if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
-      shatter(world, ny * world.w + nx, FLARE);
+      const next = ny * world.w + nx;
+      if (world.tiles[next] !== TILE.HAY) continue;
+      schedule(world, 0.12, () => shatter(world, next, FLARE));
     }
     return true;
   }
@@ -1340,6 +1369,8 @@ function discharge(world, x, y, substance) {
    */
   world.charged = { tiles: live, x, y, life: 0.5, max: 0.5 };
 
+  let order = 0;
+
   for (const body of hit) {
     const angle = Math.atan2(body.y - y, body.x - x);
 
@@ -1348,7 +1379,15 @@ function discharge(world, x, y, substance) {
      * дёргается позже ближнего, и по этой задержке видно, что убило их
      * одно и то же, а не пять отдельных случайностей.
      */
-    const travel = Math.min(0.3, Math.hypot(body.x - x, body.y - y) / ARC_SPEED);
+    /*
+     * К расстоянию добавляется шаг по счёту. Трое, стоящие бок о бок,
+     * одинаково далеки от бочки — и падали в один кадр, отчего цепь
+     * читалась как «все умерли разом», а не как разряд, идущий дальше.
+     * Разница в восьмую долю секунды делает из этого домино.
+     */
+    const travel = Math.min(0.3, Math.hypot(body.x - x, body.y - y) / ARC_SPEED)
+      + order * 0.13;
+    order += 1;
 
     schedule(world, travel, () => {
       if (!body.alive) return;
@@ -1482,7 +1521,10 @@ export function update(world, dt, intent) {
   for (const noise of world.noises) noise.life -= dt;
   world.noises = world.noises.filter((n) => n.life > 0);
 
-  for (const corpse of world.corpses) corpse.twitch = Math.max(0, corpse.twitch - dt);
+  for (const corpse of world.corpses) {
+    corpse.twitch = Math.max(0, corpse.twitch - dt);
+    if (corpse.fall > 0) corpse.fall = Math.max(0, corpse.fall - dt);
+  }
 
   if (world.decals.length > 420) world.decals.splice(0, world.decals.length - 420);
 }

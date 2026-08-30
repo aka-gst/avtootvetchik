@@ -902,9 +902,34 @@ export function createRenderer(canvas) {
      ТЕЛА
      ======================================================= */
 
+  const CORPSE_SHEETS = { caster: 'sparker', carrier: 'warden' };
+
   function drawCorpses(g, world) {
     for (const corpse of world.corpses) {
       const jitter = corpse.twitch > 0 ? (Math.random() - 0.5) * corpse.twitch * 2 : 0;
+
+      /*
+       * Падающий рисуется ещё собой, но заваливается: фигура кренится и
+       * оседает, и только потом на её месте оказывается тело. Без этого
+       * смерть была подменой картинки — стоял и лежит, — а между ними
+       * игрок не видел ничего и обобщать ему было не из чего.
+       */
+      if (corpse.fall > 0) {
+        const gone = 1 - corpse.fall / 0.34;
+        g.save();
+        g.translate(corpse.x + jitter, corpse.y + gone * 3);
+        g.rotate(corpse.lean * gone * 2.2);
+        g.scale(1 - gone * 0.16, 1 - gone * 0.34);
+        mage(g, {
+          x: 0, y: 0, angle: corpse.angle,
+          palette: ROBES[corpse.kind] || ROBES.thug,
+          sheet: CORPSE_SHEETS[corpse.kind] || 'punk',
+          phase: 0, downed: true,
+        });
+        g.restore();
+        continue;
+      }
+
       mage(g, {
         x: corpse.x + jitter, y: corpse.y, angle: corpse.angle,
         palette: ROBES.dead, sheet: 'corpse', phase: 0, downed: true,
