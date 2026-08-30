@@ -1047,7 +1047,7 @@ let previous = performance.now();
  * один раз и больше некому было её повторить.
  *
  * Теперь следующий кадр планируется всегда, а ошибка показывается игроку
- * и запоминается в window.avto.error. Сломанная игра должна об этом
+ * и запоминается в window.technomagic.error. Сломанная игра должна об этом
  * говорить, а не молчать.
  */
 function frame(now) {
@@ -1056,8 +1056,8 @@ function frame(now) {
   try {
     step(now);
   } catch (error) {
-    if (!window.avto.error) {
-      window.avto.error = error;
+    if (!window.technomagic.error) {
+      window.technomagic.error = error;
       setToast(`СБОЙ: ${String(error && error.message || error).slice(0, 60)}`, 6);
       console.error('кадр упал', error);
     }
@@ -1325,7 +1325,19 @@ window.addEventListener('pointerdown', wake);
  * снаружи: дошло ли нажатие до мира и в каком состоянии игра. Ничего не
  * меняет — только отдаёт ссылки на живые объекты.
  */
-window.avto = {
+/*
+ * ВХОД СНАРУЖИ
+ * =========================================================
+ * Имя своё, а не общее. Раньше здесь стояло window.avto — наследство от
+ * прежнего названия игры, — и ровно такое же имя оказалось у соседнего
+ * проекта. Две разные игры, две разные сцены, одно имя: на разных
+ * страницах это не ломается само, но тот, кто снимает шесть игр по
+ * записанному рецепту, применит к одной порядок вызовов другой. Ошибка
+ * будет выглядеть как «сцена не работает», а искать её станут в сцене.
+ *
+ * Старое имя оставлено синонимом: на него могли уже сослаться.
+ */
+window.technomagic = {
   get world() { return world; },
   get scene() { return scene; },
   get level() { return level; },
@@ -1345,7 +1357,7 @@ window.avto = {
    * другой — это разделение труда, а не лень: сцену умеет поставить
    * только тот, кто знает игру.
    *
-   *   const s = window.avto.showcase();     // сцена стоит, игра молчит
+   *   const s = window.technomagic.showcase({ width: 960, height: 540 });
    *   while (s.state().упавших < 2) s.step(1/60);
    *   s.render();                           // кадр в холсте
    *   s.stop();                             // вернуть игру
@@ -1355,6 +1367,24 @@ window.avto = {
    */
   showcase(options = {}) {
     const seed = options.seed || 20260830;
+
+    /*
+     * Размер холста ставит кадровый цикл — а на съёмке он молчит, и без
+     * этой строки сцена рисуется в холст по умолчанию, триста на сто
+     * пятьдесят. Кадр при этом выходит не пустой, а хуже: почти
+     * правильный, только мелкий, и заметить это можно лишь замерив.
+     * Поймано счётчиком прозрачных пикселей: их оказалось не ноль.
+     *
+     * Размер можно задать и прямо — снимающему обычно нужен постоянный
+     * кадр, не зависящий от того, каким окном его открыли. А в скрытой
+     * вкладке холст вообще не имеет размера, и спросить его не у кого.
+     */
+    if (options.width && options.height) {
+      renderer.resize(options.width, options.height, options.dpr || 1);
+    } else {
+      resize();
+    }
+
     const made = withSeed(seed, () => createShowcase(CAMPAIGN[0], renderer));
 
     document.body.classList.add('is-shooting');
@@ -1393,6 +1423,10 @@ window.avto = {
   },
 };
 
+
+/* Синоним под прежним именем. Держится ради ссылок, которые могли
+   остаться снаружи, и уйдёт, когда станет ясно, что таких нет. */
+window.avto = window.technomagic;
 const fromHash = levelFromHash();
 if (fromHash) { level = fromHash; custom = true; }
 

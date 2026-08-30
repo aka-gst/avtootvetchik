@@ -54,6 +54,8 @@ export function createAudio() {
     decodeURIComponent(window.location.search || ''));
 
   try {
+    /* Ключ памяти остаётся прежним намеренно: сменить его — значит
+       забыть у всех, кто уже выключил звук, ради красоты имени. */
     const saved = quiet ? '1' : localStorage.getItem('avto-muted');
 
     const local =
