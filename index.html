@@ -16,6 +16,15 @@
 
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css?v=1">
+
+  <!--
+    Счётчик посещений, тот же, что на всех страницах сайта. Путь обязан
+    быть от корня: игра лежит в /technomagic/, а счётчик в /pulse/.
+
+    Адрес именно /pulse/, а не stats.aka-gst.ru: тот домен намеренно
+    отдаёт 404 всем снаружи, панель открывают через туннель, и всё, что
+    слали на него раньше, уходило в никуда. Обратно его не возвращать.
+  -->
   <script defer src="/pulse/script.js" data-website-id="de024048-c4c3-4639-bbdf-808c558f6d71"></script>
 </head>
 
