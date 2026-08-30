@@ -115,6 +115,52 @@ function eventOf(stack) {
     hinted.hinted && !hinted.known && hinted.substance === 'ЛАВА');
 }
 
+/* --- След решения ------------------------------------------------------
+ *
+ * Комната считается получившейся не по тому, проходится ли она, а по
+ * тому, сколькими разными способами её прошли. Значит след обязан быть
+ * канонической формой набора правил: одно и то же решение, сыгранное в
+ * другом порядке или другим темпом, обязано дать ту же строку. Иначе
+ * счёт различных решений превращается в счёт прохождений.
+ */
+{
+  const { createTrace, traceEvent, traceKey } = await import('../src/trace.js');
+
+  const same = (events) => {
+    const t = createTrace();
+    for (const e of events) traceEvent(t, e);
+    return traceKey(t);
+  };
+
+  const a = same([
+    { type: 'barrel' },
+    { type: 'daemon', elements: ['bolt'], form: 'shot', signature: null },
+    { type: 'chain', size: 3 },
+  ]);
+
+  const b = same([
+    { type: 'chain', size: 3 },
+    { type: 'daemon', elements: ['bolt'], form: 'shot', signature: null },
+    { type: 'barrel' },
+    { type: 'daemon', elements: ['bolt'], form: 'shot', signature: null },
+  ]);
+
+  check('порядок и повторы не меняют след', a === b, `${a} / ${b}`);
+
+  const c = same([
+    { type: 'daemon', elements: ['fire', 'water'], form: 'cone', signature: null },
+    { type: 'hay' },
+  ]);
+  check('другой способ даёт другой след', a !== c, `${a} / ${c}`);
+
+  check('состав и одиночная стихия различаются',
+    same([{ type: 'daemon', elements: ['fire'], form: 'shot', signature: null }])
+    !== same([{ type: 'daemon', elements: ['fire', 'water'], form: 'shot', signature: null }]));
+
+  check('в следе нет ничего про человека',
+    !/\d{3,}|код|name|nick/i.test(a + c), a + ' ' + c);
+}
+
 console.log(report.join('\n'));
 console.log(failures ? `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}` : '\nкнига в порядке');
 process.exit(failures ? 1 : 0);

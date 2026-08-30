@@ -19,6 +19,7 @@ import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
+import { createTrace, traceEvent, traceKey } from './trace.js';
 import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
@@ -370,6 +371,8 @@ function startLevel(next, { silent } = {}) {
   score = createScore(level, attempts);
   if (!silent) audio.playTrack(level.track || 0);
 
+  trace = createTrace();
+
   /* Начало попытки. Номер попытки здесь важнее всего остального: он и
      отвечает на вопрос, сколько раз человек готов вернуться. */
   pulse('etazh-nachat', { etazh: level.title, popytka: attempts });
@@ -444,6 +447,14 @@ function clearScreen() {
     popytka: attempts,
     sekund: Math.round(world.time),
     rang: result.rank,
+
+    /*
+     * След решения. Отвечает не на «прошёл ли», а на «чем прошёл», и
+     * только он позволяет посчитать, сколькими разными способами комнату
+     * проходят. Про человека в нём нет ничего.
+     */
+    sled: traceKey(trace),
+    pravil: trace.rules.size,
   });
   const record = writeBest(levelCode, result, world.time);
   const more = hasNextFloor();
@@ -682,6 +693,9 @@ const jabSeen = {};
    себя сам: это разные события и разного тона. */
 let selfHarm = null;
 
+/* Чем прошли эту попытку. Живёт от начала этажа до его конца. */
+let trace = createTrace();
+
 function jab(kind, first) {
   const seen = jabSeen[kind] || 0;
   jabSeen[kind] = seen + 1;
@@ -898,6 +912,10 @@ function updateHud(force) {
 
 function drainEvents() {
   for (const event of world.events) {
+    /* След решения собирается здесь же: все правила, какие срабатывают,
+       проходят через события, и второго места для этого не нужно. */
+    traceEvent(trace, event);
+
     const name = SFX_BY_EVENT[event.type];
     if (name) audio.sfx(name, event);
 
