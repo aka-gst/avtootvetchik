@@ -153,9 +153,27 @@ function eventOf(stack) {
   ]);
   check('другой способ даёт другой след', a !== c, `${a} / ${c}`);
 
-  check('состав и одиночная стихия различаются',
+  /*
+   * Состав и одиночная стихия различаются — но в доставке, а не в
+   * решении. Это разница между «чем ударил» и «что случилось», и
+   * складывать их нельзя: иначе луч и плевок, разбившие одну и ту же
+   * бочку, посчитаются двумя решениями.
+   */
+  const { traceDelivery } = await import('../src/trace.js');
+  const доставка = (events) => {
+    const t = createTrace();
+    for (const e of events) traceEvent(t, e);
+    return traceDelivery(t);
+  };
+
+  check('состав и одиночная стихия различаются в доставке',
+    доставка([{ type: 'daemon', elements: ['fire'], form: 'shot', signature: null }])
+    !== доставка([{ type: 'daemon', elements: ['fire', 'water'], form: 'shot', signature: null }]));
+
+  check('но решением они не считаются',
     same([{ type: 'daemon', elements: ['fire'], form: 'shot', signature: null }])
-    !== same([{ type: 'daemon', elements: ['fire', 'water'], form: 'shot', signature: null }]));
+    === same([{ type: 'daemon', elements: ['fire', 'water'], form: 'beam', signature: null }]),
+    'разные удары по пустому месту — не разные решения');
 
   check('в следе нет ничего про человека',
     !/\d{3,}|код|name|nick/i.test(a + c), a + ' ' + c);

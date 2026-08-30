@@ -19,7 +19,7 @@ import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
-import { createTrace, traceEvent, traceKey } from './trace.js';
+import { createTrace, traceEvent, traceKey, traceDelivery } from './trace.js';
 import { createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
 
@@ -459,6 +459,7 @@ function clearScreen() {
      */
     sled: traceKey(trace),
     pravil: trace.rules.size,
+    chem: traceDelivery(trace),
   });
   const record = writeBest(levelCode, result, world.time);
   const more = hasNextFloor();

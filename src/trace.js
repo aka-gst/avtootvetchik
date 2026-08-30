@@ -36,7 +36,7 @@ const BY_EVENT = {
 };
 
 export function createTrace() {
-  return { rules: new Set(), casts: 0 };
+  return { rules: new Set(), delivery: new Set(), casts: 0 };
 }
 
 export function traceEvent(trace, event) {
@@ -46,16 +46,20 @@ export function traceEvent(trace, event) {
   if (event.type === 'daemon') {
     trace.casts += 1;
 
-    /* Состав против одиночной стихии — это разные способы, и разница
-       между ними и есть половина игры. */
-    trace.rules.add(event.elements.length >= 2 ? 'sostav' : 'iskra');
-
-    /* Форма записывается своим именем: луч и вспышка решают комнату
-       по-разному, и складывать их в «выстрелил» нельзя. */
-    if (event.form) trace.rules.add(`forma-${event.form}`);
-
-    /* Именное заклинание — отдельное правило: его ещё надо найти. */
-    if (event.signature) trace.rules.add(`imya-${event.signature}`);
+    /*
+     * Форма и состав — это ЧЕМ доставлено, а не ЧТО случилось, и потому
+     * они лежат отдельно от правил.
+     *
+     * Первая версия складывала их вместе, и измерение немедленно
+     * соврало: случайный игрок за минуту успевает выпустить шесть разных
+     * форм, и каждый прогон получался «уникальным решением». Сорок
+     * прогонов дали девятнадцать различных следов при том, что в мире
+     * во всех сорока происходило одно и то же. Считались нажатия, а не
+     * решения — ровно то, от чего замысел и предостерегает.
+     */
+    trace.delivery.add(event.elements.length >= 2 ? 'sostav' : 'iskra');
+    if (event.form) trace.delivery.add(`forma-${event.form}`);
+    if (event.signature) trace.delivery.add(`imya-${event.signature}`);
   }
 
   /*
@@ -76,4 +80,13 @@ export function traceEvent(trace, event) {
  */
 export function traceKey(trace) {
   return [...trace.rules].sort().join('+');
+}
+
+/*
+ * Чем доставлено. Отдельной строкой, потому что на вопрос «сколькими
+ * способами прошли комнату» это не отвечает: луч и плевок, разбившие одну
+ * и ту же бочку, — одно решение, сыгранное разными руками.
+ */
+export function traceDelivery(trace) {
+  return [...trace.delivery].sort().join('+');
 }
