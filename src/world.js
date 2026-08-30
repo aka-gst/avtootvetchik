@@ -1362,6 +1362,20 @@ function shatter(world, at, substance) {
    * Удар и разряд мокрому дереву по-прежнему не помеха: вода тушит, а не
    * укрепляет.
    */
+  /*
+   * Задержка на повторное срабатывание — и проверять её надо здесь, до
+   * того как клетка обнулится. Второй раз я наступил на те же грабли, что
+   * с мокрым деревом: поставил проверку внутрь ветки щитка, а клетка к
+   * тому моменту уже стёрта в пол. Снаружи это выглядело так, будто взлом
+   * сжигает щиток.
+   *
+   * Нужна она тому, что переживает удар: целый щиток снаряд задевает на
+   * каждом шаге полёта, и питание щёлкало восемь раз туда-обратно за один
+   * выстрел. Чётное число щелчков возвращало всё на место, и взлом
+   * выглядел неработающим.
+   */
+  if (world.tileHold && world.tileHold[at] > 0) return false;
+
   if (world.tileWet && world.tileWet[at] > 0
       && substance.traits.burn && !substance.traits.crush && !substance.traits.shock) {
     addCloud(world, x, y, TILE_SIZE * 0.8, 'steam');
@@ -1524,6 +1538,7 @@ function shatter(world, at, substance) {
      */
     const точно = substance.traits.shock && substance.elements.length >= 2;
 
+    if (world.tileHold) world.tileHold[at] = 0.5;
     setPower(world, !world.powered);
     world.events.push({ type: 'panel', x, y, точно });
 

@@ -86,6 +86,10 @@ export function createField(world) {
   /* Мокрое считается по клеткам отдельно от пола: под скамьёй лужи быть
      не может — она держит проход, — а мокрой скамья быть обязана. */
   world.tileWet = new Float32Array(size);
+
+  /* Задержка на повторное срабатывание клетки. Нужна тому, что переживает
+     удар: целый щиток снаряд задевает на каждом шаге полёта. */
+  world.tileHold = new Float32Array(size);
   world.groundAge = new Float32Array(size);
   world.clouds = [];
 }
@@ -382,6 +386,7 @@ export function updateField(world, dt) {
   if (world.tileWet) {
     for (let i = 0; i < world.tileWet.length; i += 1) {
       if (world.tileWet[i] > 0) world.tileWet[i] = Math.max(0, world.tileWet[i] - dt);
+      if (world.tileHold[i] > 0) world.tileHold[i] = Math.max(0, world.tileHold[i] - dt);
     }
   }
 

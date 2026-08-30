@@ -50,13 +50,27 @@ function цели(world) {
   return out;
 }
 
-function прогон(floor, seed, секунд = 60) {
+/*
+ * Откуда начинать. По умолчанию — со входа на этаж, но у обучалки перед
+ * комнатой стоит коридор из двух запертых створок, и случайный игрок
+ * почти всегда застревает в нём: шестьдесят один прогон из ста двадцати
+ * не дошёл вообще ни до одного правила.
+ *
+ * Тогда измерение меряет вход, а не комнату, а замысел спрашивает именно
+ * про комнату — «одна комната с пятью решениями». Поэтому начальную
+ * клетку можно задать: node tools/reshenia.mjs 120 10,12
+ */
+function прогон(floor, seed, откуда, секунд = 60) {
   const rnd = seeded(seed);
   const было = Math.random;
   Math.random = rnd;
 
   try {
     const world = createWorld(floor);
+    if (откуда) {
+      world.player.x = (откуда[0] + 0.5) * TILE_SIZE;
+      world.player.y = (откуда[1] + 0.5) * TILE_SIZE;
+    }
     const trace = createTrace();
     let набор = [];
 
@@ -97,13 +111,14 @@ function прогон(floor, seed, секунд = 60) {
 }
 
 const сколько = Number(process.argv[2]) || 60;
+const откуда = process.argv[3] ? process.argv[3].split(',').map(Number) : null;
 const floor = CAMPAIGN[0];
 
 const следы = new Map();
 let живых = 0;
 
 for (let i = 0; i < сколько; i += 1) {
-  const r = прогон(floor, 20260830 + i * 7919);
+  const r = прогон(floor, 20260830 + i * 7919, откуда);
   if (r.жив) живых += 1;
   if (!r.правил) continue;
   следы.set(r.след, (следы.get(r.след) || 0) + 1);
@@ -112,7 +127,7 @@ for (let i = 0; i < сколько; i += 1) {
 const всего = [...следы.values()].reduce((a, b) => a + b, 0);
 const частый = Math.max(0, ...следы.values());
 
-console.log(`этаж: ${floor.title}`);
+console.log(`этаж: ${floor.title}${откуда ? `, старт с клетки ${откуда.join(',')}` : ''}`);
 console.log(`прогонов: ${сколько}, из них с хоть одним правилом: ${всего}, выжил в ${живых}`);
 console.log(`различных решений: ${следы.size}`);
 console.log(`доля самого частого: ${всего ? Math.round(частый / всего * 100) : 0}%`);

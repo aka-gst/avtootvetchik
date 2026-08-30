@@ -1862,6 +1862,36 @@ function cast(world, stack, angle) {
 }
 
 
+/*
+ * Открытое место в стороне от клетки: на прямой, без преград, с той
+ * стороны, где оно есть. Проверки про щиток дважды ломались от того, что
+ * расстановку комнаты меняли, а они помнили «четыре клетки вправо» и
+ * ставили то игрока, то стража в стену. Читать карту дешевле, чем
+ * помнить её, и это ровно тот же урок, что с копной и со свидетелем.
+ */
+function простороту(world, at, шагов) {
+  const tx = at % world.w;
+  const ty = (at / world.w) | 0;
+
+  for (const dx of [1, -1]) {
+    let открыто = true;
+    for (let k = 1; k <= шагов && открыто; k += 1) {
+      const nx = tx + dx * k;
+      if (nx < 1 || nx >= world.w - 1) открыто = false;
+      else if (blocksMove(world.tiles[ty * world.w + nx])) открыто = false;
+    }
+    if (открыто) {
+      return {
+        x: (tx + dx * шагов + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+        угол: dx > 0 ? Math.PI : 0,
+      };
+    }
+  }
+
+  return null;
+}
+
 /* --- P4. Щиток шумит не там, где игрок --- */
 {
   /*
@@ -1886,21 +1916,38 @@ function cast(world, stack, angle) {
   const px = ((panel % world.w) + 0.5) * TILE_SIZE;
   const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
 
-  /* Игрок далеко от щитка и от стражи: важно, что шум придёт не от него. */
+  /*
+   * Стража ставится на открытую клетку примерно в пяти шагах от щитка —
+   * искомую, а не вычисленную сдвигом. Прежняя версия отмеряла «шесть
+   * клеток вправо и три вниз» и после перестановки комнаты сажала стража
+   * в стену: он не двигался, а проверка это честно показывала как
+   * «не пошёл к щитку».
+   */
   const guard = world.enemies.find((enemy) => enemy.alive);
-  guard.x = px + TILE_SIZE * 6;
-  guard.y = py + TILE_SIZE * 3;
+  let пост = null;
+  for (let i = 0; i < world.tiles.length && !пост; i += 1) {
+    if (blocksMove(world.tiles[i])) continue;
+    const gx = ((i % world.w) + 0.5) * TILE_SIZE;
+    const gy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+    const шагов = Math.hypot(gx - px, gy - py) / TILE_SIZE;
+    if (шагов > 4.5 && шагов < 6) пост = { x: gx, y: gy };
+  }
+  check('для стражи есть открытый пост у щитка', Boolean(пост));
+
+  guard.x = пост.x;
+  guard.y = пост.y;
   guard.state = 'idle';
   guard.heard = null;
 
-  world.player.x = px + TILE_SIZE * 4;
-  world.player.y = py;
+  const место = простороту(world, panel, 4);
+  world.player.x = место.x;
+  world.player.y = место.y;
 
   const доИгрока = () => Math.hypot(guard.x - world.player.x, guard.y - world.player.y);
   const доЩитка = () => Math.hypot(guard.x - px, guard.y - py);
   const былоДоЩитка = доЩитка();
 
-  cast(world, ['bolt'], Math.PI);
+  cast(world, ['bolt'], место.угол);
   run(world, 3);
 
   check('щиток замкнуло', world.tiles[panel] !== TILE.PANEL);
@@ -1979,9 +2026,10 @@ function cast(world, stack, angle) {
   const было = силовых();
 
   for (const enemy of world.enemies) enemy.alive = false;
-  world.player.x = px + TILE_SIZE * 4;
-  world.player.y = py;
-  cast(world, ['bolt'], Math.PI);
+  const место = простороту(world, panel, 4);
+  world.player.x = место.x;
+  world.player.y = место.y;
+  cast(world, ['bolt'], место.угол);
   run(world, 1);
 
   check('щиток обесточил этаж', world.powered === false);
@@ -2017,8 +2065,9 @@ function cast(world, stack, angle) {
     const px = ((panel % world.w) + 0.5) * TILE_SIZE;
     const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
 
-    world.player.x = px + TILE_SIZE * 4;
-    world.player.y = py;
+    const место = простороту(world, panel, 4);
+    world.player.x = место.x;
+    world.player.y = место.y;
 
     /*
      * Меряется шум У ЩИТКА, а не громкость вообще. Состав и сам по себе
@@ -2027,7 +2076,7 @@ function cast(world, stack, angle) {
      * гремит НА ЩИТКЕ и уводит туда стражу, а взлом там не звучит вовсе.
      */
     let уЩитка = 0;
-    cast(world, стек, Math.PI);
+    cast(world, стек, место.угол);
     for (let f = 0; f < 90; f += 1) {
       update(world, DT, idle);
       for (const шум of world.noises) {
