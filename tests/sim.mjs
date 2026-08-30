@@ -1759,6 +1759,66 @@ function cast(world, stack, angle) {
 }
 
 
+/* --- P3. Летящее тело — снаряд --- */
+{
+  /*
+   * Правило общее, а не частный случай про трупы от бочки. Иначе это
+   * украшение: красиво один раз и ничего не меняет. Общее правило даёт
+   * игроку новый глагол — швырять врагов друг в друга, — и порождает
+   * решения, которых никто не задумывал.
+   *
+   * Поэтому проверяются оба конца: и живой отброшенный, и мёртвый
+   * отлетевший. Если работает только один, правило снова частный случай.
+   */
+  function pair() {
+    const world = createWorld(TUTOR);
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    const flyer = world.enemies[0];
+    const mark = world.enemies[1];
+    flyer.alive = true;
+    mark.alive = true;
+    mark.resist = null;
+    mark.hp = 1;
+    flyer.x = 200; flyer.y = 200;
+    mark.x = 260; mark.y = 200;
+    world.total = 2;
+    world.kills = 0;
+    return { world, flyer, mark };
+  }
+
+  {
+    const { world, flyer, mark } = pair();
+    flyer.stagger = 1.2;
+    flyer.shove = 1.2;
+    flyer.vx = 400;
+    run(world, 1);
+    check('отброшенный живой сносит того, в кого влетел', !mark.alive);
+  }
+
+  {
+    /* Мёртвый уносит скорость с собой — ровно тот случай, который просил
+       автор: тело отлетело от взрыва и снесло второго. */
+    const { world, flyer, mark } = pair();
+    flyer.vx = 420;
+    killEnemy(world, flyer, 0, 'daemon', { by: 'player' });
+    run(world, 1);
+    check('труп, отлетевший со скоростью, сносит второго', !mark.alive);
+  }
+
+  {
+    /* А вот бегущий своим ходом никого не сносит: иначе враги валили бы
+       друг друга сами, и правило превратилось бы в шум. */
+    const { world, mark } = pair();
+    const runner = world.enemies[0];
+    runner.vx = 150;
+    runner.stagger = 0;
+    run(world, 1);
+    check('бегущий своим ходом никого не сносит', mark.alive);
+  }
+}
+
+
 /* --- Q. Солома --- */
 {
   const world = createWorld(TUTOR);

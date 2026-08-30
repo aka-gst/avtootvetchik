@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 /*
  * ТЕХНОМАГИЯ — прогон ввода без браузера.
  *
@@ -129,6 +130,44 @@ check('она же даёт одиночное нажатие', input.tookKey('F
 fire(fakeButton.listeners, 'touchend', {});
 state = input.read();
 check('отпущенная кнопка отпускает удар', state.attackHeld === false);
+
+/* --- Целость main.js ---------------------------------------------------
+ *
+ * main.js не проверяется прогоном: он трогает документ, а его в узле нет.
+ * Из-за этого целый класс поломок доезжает до браузера незамеченным —
+ * и один раз доехал: правка, менявшая обучалку по диапазону строк,
+ * заодно вырезала блок с подколами, а вызовы jab() остались. Синтаксис
+ * при этом верный, тесты зелёные, а игра падает на первом же самоподжоге.
+ *
+ * Поэтому файл читается как текст и проверяется на то, что все свои
+ * помощники, которых он зовёт, в нём же и объявлены. Это не замена
+ * прогону, но ровно ту ошибку ловит.
+ */
+{
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+
+  const helpers = [
+    'jab', 'pulse', 'iconTag', 'setToast', 'vibrate', 'byTouch',
+    'tutorStart', 'tutorFeed', 'syncElementButtons', 'renderTome',
+    'showVeil', 'hideVeil', 'startLevel', 'deathScreen', 'clearScreen',
+  ];
+
+  for (const name of helpers) {
+    if (!new RegExp(`\\b${name}\\s*\\(`).test(main)) continue;
+    const declared = new RegExp(`function ${name}\\b`).test(main)
+      || new RegExp(`\\b(?:const|let)\\s+${name}\\b`).test(main)
+      || new RegExp(`import\\s*\\{[^}]*\\b${name}\\b`).test(main);
+    check(`main.js: ${name} объявлен там, где вызывается`, declared);
+  }
+
+  /* И у каждой подколки должен быть свой список: опечатка в имени вида
+     jab('shocked') молча вернула бы undefined и показала пустую строку. */
+  const kinds = [...main.matchAll(/jab\('([a-z]+)'/g)].map((m) => m[1]);
+  for (const kind of new Set(kinds)) {
+    check(`main.js: у подколки «${kind}» есть свой список`,
+      new RegExp(`\\n\\s{2}${kind}:\\s*\\[`).test(main));
+  }
+}
 
 console.log(failures ? `\nПРОВАЛЕНО: ${failures}` : '\nввод работает');
 process.exit(failures ? 1 : 0);

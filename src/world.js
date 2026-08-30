@@ -119,6 +119,59 @@ function solidAt(world, x, y) {
  * залипает в углу. Раздельность важнее точности — в дверном проёме
  * шириной в клетку игрок иначе застревает и умирает не по своей вине.
  */
+/*
+ * ИМПУЛЬС ЛЕТЯЩЕГО ТЕЛА
+ * =========================================================
+ * Тело, которое летит, — снаряд. Не «трупы от бочки сбивают соседей», а
+ * общее правило: во что попало, тому и передалось. Разница
+ * принципиальная. Частный случай — украшение, красивое один раз; общее
+ * правило даёт игроку новый глагол — швырять врагов друг в друга, — и
+ * порождает решения, которых никто не задумывал.
+ *
+ * Порог низкий намеренно, и это безопасно: сюда попадают только тела,
+ * которые уже летят — отброшенные и мёртвые. Бегущий своим ходом враг в
+ * эту ветку не заходит вовсе, поэтому случайных столкновений на бегу не
+ * будет даже при скорости вдвое выше порога.
+ *
+ * Высокий порог пробовался первым и не работал: тело тормозит быстрее,
+ * чем долетает, и к моменту касания скорость успевала упасть ниже
+ * порога — снаряд честно долетал и вежливо останавливался.
+ */
+const FLING_SPEED = 105;
+
+function fling(world, mover, from) {
+  const speed = Math.hypot(mover.vx || 0, mover.vy || 0);
+  if (speed < FLING_SPEED) return;
+
+  const angle = Math.atan2(mover.vy, mover.vx);
+
+  for (const body of [world.player, ...world.enemies]) {
+    if (body === mover || body === from || !body.alive) continue;
+    if (Math.hypot(body.x - mover.x, body.y - mover.y) > BODY * 2) continue;
+
+    /* Половина скорости уходит дальше, в того, кого сбили. */
+    body.vx = (body.vx || 0) + Math.cos(angle) * speed * 0.5;
+    body.vy = (body.vy || 0) + Math.sin(angle) * speed * 0.5;
+    body.stagger = Math.max(body.stagger || 0, 0.4);
+    body.shove = Math.max(body.shove || 0, 0.4);
+
+    world.fx.shake = Math.max(world.fx.shake, 5);
+    world.events.push({ type: 'fling' });
+
+    if (body === world.player) {
+      killPlayer(world, angle);
+    } else {
+      killEnemy(world, body, angle, 'fling',
+        { by: 'player', weapon: 'body', elements: [] });
+    }
+
+    /* Летящее тело тормозит о того, кого снесло. */
+    mover.vx *= 0.4;
+    mover.vy *= 0.4;
+    return;
+  }
+}
+
 function moveBody(world, body, dx, dy) {
   const r = BODY;
 
@@ -727,6 +780,17 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
     fall: 0.34,
     sheet: enemy.kind,
     lean: (Math.random() - 0.5) * 0.6,
+
+    /*
+     * Труп уносит с собой скорость. Именно этого просил автор: тело,
+     * отлетевшее от взрыва, сносит второго — «у нас же маджика, физика и
+     * веселье». Правило одно на всех, поэтому живой, отброшенный
+     * ОТБОЕМ, сносит так же.
+     */
+    vx: enemy.vx || 0,
+    vy: enemy.vy || 0,
+    shove: 0.6,
+    alive: false,
   });
 
   world.fx.hitstop = Math.max(world.fx.hitstop, 0.045);
@@ -1524,6 +1588,14 @@ export function update(world, dt, intent) {
   for (const corpse of world.corpses) {
     corpse.twitch = Math.max(0, corpse.twitch - dt);
     if (corpse.fall > 0) corpse.fall = Math.max(0, corpse.fall - dt);
+
+    /* Летящее тело едет и сбивает, пока не остановится. */
+    if (Math.hypot(corpse.vx || 0, corpse.vy || 0) > 4) {
+      moveBody(world, corpse, corpse.vx * dt, corpse.vy * dt);
+      fling(world, corpse, null);
+      corpse.vx *= 0.9;
+      corpse.vy *= 0.9;
+    }
   }
 
   if (world.decals.length > 420) world.decals.splice(0, world.decals.length - 420);
@@ -1672,6 +1744,9 @@ function updateEnemy(world, enemy, dt) {
     enemy.vx *= drag;
     enemy.vy *= drag;
     moveBody(world, enemy, enemy.vx * dt, enemy.vy * dt);
+
+    /* Отброшенный живой — такой же снаряд, как и мёртвый. Правило одно. */
+    fling(world, enemy, null);
     return;
   }
 
