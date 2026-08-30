@@ -49,7 +49,7 @@ function seeded(seed) {
  */
 function цели(world) {
   const out = world.enemies.filter((enemy) => enemy.alive)
-    .map((enemy) => ({ x: enemy.x, y: enemy.y }));
+    .map((enemy) => ({ x: enemy.x, y: enemy.y, вид: null }));
 
   const занято = new Set();
 
@@ -82,7 +82,7 @@ function цели(world) {
       sy += (((at / world.w) | 0) + 0.5) * TILE_SIZE;
     }
 
-    out.push({ x: sx / куски.length, y: sy / куски.length });
+    out.push({ x: sx / куски.length, y: sy / куски.length, вид });
   }
 
   return out;
@@ -173,8 +173,20 @@ function прогон(floor, seed, откуда, секунд = 60, толков
            * середины клетки. Ту же ошибку я уже чинил в прицеле самой
            * игры, и она вернулась в инструменте.
            */
+          /*
+           * И второе, чему толковый игрок обязан быть обучен: не бить по
+           * взрывоопасному в упор. Бочка разливает воду, кристалл бьёт
+           * разрядом, вода проводит — цепь возвращается к стрелявшему.
+           * Владелец прямо сказал, что тактика тут не только «как всех
+           * убить», но и «как не пострадать самому»; значит уклонение от
+           * собственной цепи — часть умения, а не поблажка модели.
+           */
           const видимые = толково
             ? цель.filter((t) => {
+              if (t.вид === TILE.BARREL || t.вид === TILE.CRYSTAL) {
+                if (Math.hypot(t.x - world.player.x, t.y - world.player.y)
+                  < TILE_SIZE * 2.5) return false;
+              }
               const dx = t.x - world.player.x;
               const dy = t.y - world.player.y;
               const dist = Math.hypot(dx, dy) || 1;
