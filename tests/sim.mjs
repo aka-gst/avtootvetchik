@@ -1625,6 +1625,78 @@ function cast(world, stack, angle) {
     under.map((enemy) => (enemy.alive ? 'жив' : 'нет')).join(' '));
 }
 
+/* --- P2. Крепкий держит одиночную стихию --- */
+{
+  /*
+   * Носитель щита — первый враг, которого нельзя снять одним касанием.
+   * Смысл не в том, чтобы бить дважды, а в том, чтобы найти, чем взять:
+   * способов четыре, и каждый убивает его сразу. Проверяются все четыре
+   * и отдельно то, ради чего всё затевалось, — что простой удар не берёт.
+   */
+  function carrier(prepare) {
+    const world = createWorld(TUTOR);
+    world.elements = [...ELEMENT_ORDER];
+
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    const mark = world.enemies[0];
+    mark.alive = true;
+    mark.kind = 'carrier';
+    mark.hp = 2;
+    mark.resist = null;
+    mark.state = 'idle';
+    mark.x = world.player.x + TILE_SIZE * 3;
+    mark.y = world.player.y;
+    world.total = 1;
+    world.kills = 0;
+
+    if (prepare) prepare(world, mark);
+    return { world, mark };
+  }
+
+  {
+    const { world, mark } = carrier();
+    cast(world, ['fire'], 0);
+    run(world, 0.6);
+    check('крепкий держит одиночную стихию', mark.alive && mark.hp === 1,
+      `жив=${mark.alive} запас=${mark.hp}`);
+  }
+
+  {
+    /* 1. Состояние: мокрого добивает разряд. */
+    const { world, mark } = carrier((w, enemy) => { enemy.wet = 3; });
+    cast(world, ['bolt'], 0);
+    run(world, 0.6);
+    check('мокрого крепкого разряд снимает сразу', !mark.alive);
+  }
+
+  {
+    /* 2. Состав: две стихии — это вещество, а не искра. */
+    const { world, mark } = carrier();
+    cast(world, ['fire', 'water'], 0);
+    run(world, 0.8);
+    check('состав из двух стихий снимает крепкого сразу', !mark.alive);
+  }
+
+  {
+    /* 3. Дорогая форма: за луч заплачено набором. */
+    const { world, mark } = carrier();
+    cast(world, ['water', 'water', 'water'], 0);
+    run(world, 0.8);
+    check('дорогая форма снимает крепкого сразу', !mark.alive,
+      `жив=${mark.alive} запас=${mark.hp}`);
+  }
+
+  {
+    /* 4. Добивание: оглушённый не держит ничего. */
+    const { world, mark } = carrier((w, enemy) => { enemy.stagger = 0.5; });
+    cast(world, ['fire'], 0);
+    run(world, 0.6);
+    check('оглушённого крепкого добивает любой удар', !mark.alive);
+  }
+}
+
+
 /* --- Q. Солома --- */
 {
   const world = createWorld(TUTOR);

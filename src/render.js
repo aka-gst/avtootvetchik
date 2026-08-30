@@ -945,6 +945,33 @@ export function createRenderer(canvas) {
         g.globalAlpha = 1;
       }
 
+      /*
+       * Крепкого видно до удара. Двойное кольцо значит «одиночная стихия
+       * не возьмёт»; когда запас надломлен, внутреннее кольцо рвётся —
+       * добить можно чем угодно, и это должно быть видно через полкомнаты.
+       */
+      if ((enemy.hp || 1) > 1 || enemy.tough) {
+        g.save();
+        g.strokeStyle = '#d9e2ea';
+        g.globalAlpha = 0.55;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(enemy.x, enemy.y, BODY + 3, 0, 6.29);
+        g.stroke();
+        g.restore();
+      } else if (enemy.wasTough) {
+        g.save();
+        g.strokeStyle = '#ffb0b8';
+        g.globalAlpha = 0.6;
+        g.lineWidth = 2;
+        g.setLineDash([5, 6]);
+        g.beginPath();
+        g.arc(enemy.x, enemy.y, BODY + 3, 0, 6.29);
+        g.stroke();
+        g.setLineDash([]);
+        g.restore();
+      }
+
       mage(g, {
         x: enemy.x, y: enemy.y, angle: enemy.angle,
         palette: ROBES[enemy.kind] || ROBES.thug,

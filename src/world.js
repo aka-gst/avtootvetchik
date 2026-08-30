@@ -384,6 +384,7 @@ export function createWorld(level) {
         kind: 'carrier',
         weapon: 'bat',
         ammo: 0,
+        hp: 2,
         element: SHIELD_BY_TYPE[entity.type],
         resist: SHIELD_BY_TYPE[entity.type],
         x, y, vx: 0, vy: 0,
@@ -631,8 +632,63 @@ export function knockDown(world, enemy, angle) {
   world.events.push({ type: 'knock' });
 }
 
+/*
+ * ЖИВУЧЕСТЬ
+ * =========================================================
+ * С одного удара умирают слабые. Крепкого — носителя щита — одиночная
+ * стихия в лоб не берёт: он её держит и отшатывается. Это не про
+ * «бить дважды», а про то, чтобы найти, чем взять; способов четыре, и
+ * каждый убивает крепкого сразу.
+ *
+ * 1. Состояние. Мокрый под разрядом, горящий под чем угодно — по телу
+ *    уже идёт то, что его добьёт, и удар только заканчивает начатое.
+ * 2. Состав. Две стихии и больше — это вещество, а не искра; за него
+ *    заплачено очередью, и оно того стоит.
+ * 3. Дорогая форма. Луч, пробой и вспышка стоят долгого набора и бьют
+ *    насквозь; требовать от них ещё и второго попадания — обесценить.
+ * 4. Добивание. Оглушённый и сбитый с ног не держит ничего.
+ *
+ * Всё вместе и есть ответ на вопрос, ради которого крепкий и стоит на
+ * этаже: можно ли убрать его одним ходом. Можно — если ход выстроен.
+ */
+function outright(enemy, cause, source) {
+  if (cause === 'chain' || cause === 'fire' || cause === 'melee') return true;
+
+  /* Состояние тела. */
+  if (enemy.burning > 0) return true;
+  if ((enemy.wet || 0) > 0 && source.traits && source.traits.shock) return true;
+
+  /* Добивание. */
+  if (enemy.stagger > 0 || enemy.downed > 0) return true;
+
+  /* Состав и дорогая форма. */
+  if (source.elements && source.elements.length >= 2) return true;
+  if (source.form === 'beam' || source.form === 'nova') return true;
+
+  return false;
+}
+
 export function killEnemy(world, enemy, angle, cause, source = {}) {
   if (!enemy.alive) return;
+
+  /*
+   * Крепкий держит удар — но только тот, который нечем было усилить.
+   * Событие уходит наружу: игрок обязан понять, что промаха не было, а
+   * был неподходящий удар, иначе он решит, что игра его обманула.
+   */
+  if ((enemy.hp || 1) > 1 && !outright(enemy, cause, source)) {
+    enemy.hp -= 1;
+    /* Надломленный остаётся помечен: кольцо вокруг него рвётся, и видно,
+       что теперь его добьёт что угодно. */
+    enemy.wasTough = true;
+    enemy.stagger = Math.max(enemy.stagger || 0, 0.3);
+    enemy.hitFlash = 0.3;
+    enemy.vx += Math.cos(angle) * 90;
+    enemy.vy += Math.sin(angle) * 90;
+    world.fx.shake = Math.max(world.fx.shake, 4);
+    world.events.push({ type: 'held', kind: enemy.kind });
+    return;
+  }
   enemy.alive = false;
   world.kills += 1;
 
@@ -790,6 +846,9 @@ function spawnDaemon(world, angle, spell) {
     oy: player.y,
     elements: spell.elements,
     substance,
+    /* Снаряд несёт форму с собой: живучесть крепкого решается в месте
+       попадания, а там от заклинания остаётся только снаряд. */
+    form: form.kind,
     trail: Boolean(spell.signature && spell.signature.trail),
     pierce: form.pierce || 0,
     breaks: Boolean(form.breaks),
@@ -812,7 +871,7 @@ function castCone(world, spell, angle) {
     if (Math.abs(angleDelta(angle, toEnemy)) > form.arc / 2) continue;
     if (!hasSight(world, player.x, player.y, enemy.x, enemy.y)) continue;
     if (resisted(world, enemy, toEnemy, { elements })) continue;
-    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
+    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements, form: form.kind, traits: substance.traits });
   }
 
   world.blasts.push({
@@ -857,7 +916,7 @@ function castBeam(world, spell, angle) {
       if (!enemy.alive) continue;
       if (Math.hypot(enemy.x - x, enemy.y - y) > BODY + 2) continue;
       if (resisted(world, enemy, angle, { elements })) continue;
-      killEnemy(world, enemy, angle, 'daemon', { by: 'player', weapon: 'daemon', elements });
+      killEnemy(world, enemy, angle, 'daemon', { by: 'player', weapon: 'daemon', elements, form: form.kind, traits: substance.traits });
     }
 
     distance += step;
@@ -958,7 +1017,7 @@ function novaAt(world, spell, x, y, atFeet) {
     if (!hasSight(world, x, y, enemy.x, enemy.y)) continue;
     const toEnemy = Math.atan2(dy, dx);
     if (resisted(world, enemy, toEnemy, { elements })) continue;
-    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements });
+    killEnemy(world, enemy, toEnemy, 'daemon', { by: 'player', weapon: 'daemon', elements, form: form.kind, traits: substance.traits });
   }
 
   /*
@@ -1691,7 +1750,9 @@ function updateBullets(world, dt) {
 
           if (!resisted(world, enemy, angle, { elements: bullet.elements })) {
             killEnemy(world, enemy, angle, bullet.weapon === 'daemon' ? 'daemon' : 'bullet',
-              { by: 'player', weapon: bullet.weapon, elements: bullet.elements });
+              { by: 'player', weapon: bullet.weapon, elements: bullet.elements,
+                form: bullet.form,
+                traits: bullet.substance ? bullet.substance.traits : null });
           }
 
           if (bullet.pierce > 0) { bullet.pierce -= 1; continue; }
