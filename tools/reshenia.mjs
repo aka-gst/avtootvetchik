@@ -34,17 +34,55 @@ function seeded(seed) {
   };
 }
 
-/* Всё, во что вообще можно целиться: живые и всё ломаемое. */
+/*
+ * Всё, во что вообще можно целиться: живые и всё ломаемое — **предметами,
+ * а не клетками**.
+ *
+ * Это не мелочь, а третий за вечер случай, когда измеритель считал не то,
+ * что назывался считать. Копна занимает девять клеток, щиток одну, бочка
+ * одну; выбирая случайную клетку, модель выбирала копну девять раз из
+ * пятнадцати — и я чуть не объявил это перевесом копны в устройстве
+ * уровня. Человек видит один стог, а не девять стогов.
+ *
+ * Соседние клетки одного вида собираются в один предмет с общим центром,
+ * ровно как при приёмке графики: геометрия без имён.
+ */
 function цели(world) {
   const out = world.enemies.filter((enemy) => enemy.alive)
     .map((enemy) => ({ x: enemy.x, y: enemy.y }));
 
+  const занято = new Set();
+
   for (let i = 0; i < world.tiles.length; i += 1) {
-    if (!weakTo(world.tiles[i])) continue;
-    out.push({
-      x: ((i % world.w) + 0.5) * TILE_SIZE,
-      y: (((i / world.w) | 0) + 0.5) * TILE_SIZE,
-    });
+    if (занято.has(i) || !weakTo(world.tiles[i])) continue;
+
+    const вид = world.tiles[i];
+    const куски = [i];
+    занято.add(i);
+
+    for (let k = 0; k < куски.length; k += 1) {
+      const at = куски[k];
+      const tx = at % world.w;
+      const ty = (at / world.w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
+        const рядом = ny * world.w + nx;
+        if (занято.has(рядом) || world.tiles[рядом] !== вид) continue;
+        занято.add(рядом);
+        куски.push(рядом);
+      }
+    }
+
+    let sx = 0;
+    let sy = 0;
+    for (const at of куски) {
+      sx += ((at % world.w) + 0.5) * TILE_SIZE;
+      sy += (((at / world.w) | 0) + 0.5) * TILE_SIZE;
+    }
+
+    out.push({ x: sx / куски.length, y: sy / куски.length });
   }
 
   return out;
@@ -60,6 +98,14 @@ function цели(world) {
  * про комнату — «одна комната с пятью решениями». Поэтому начальную
  * клетку можно задать: node tools/reshenia.mjs 120 10,12
  */
+function выходНа(world) {
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] !== TILE.EXIT) continue;
+    return { x: ((i % world.w) + 0.5) * TILE_SIZE, y: (((i / world.w) | 0) + 0.5) * TILE_SIZE };
+  }
+  return null;
+}
+
 function прогон(floor, seed, откуда, секунд = 60, толково = true) {
   const rnd = seeded(seed);
   const было = Math.random;
@@ -116,6 +162,19 @@ function прогон(floor, seed, откуда, секунд = 60, толков
         const t = цель[Math.floor(rnd() * цель.length)];
         const a = Math.atan2(t.y - world.player.y, t.x - world.player.x)
           + (rnd() - 0.5) * 1.4;
+        intent.moveX = Math.cos(a);
+        intent.moveY = Math.sin(a);
+      } else if (rnd() < 0.02) {
+        /*
+         * Иногда — к выходу. Живой игрок хочет пройти комнату, а не
+         * гулять по ней: без этого нижняя половина уровня не посещалась
+         * вовсе, и щиток с силовой стеной не встретились ни разу за сто
+         * прогонов. Не цель, а склонность: тянет туда, но не ведёт.
+         */
+        const выход = выходНа(world);
+        const a = выход
+          ? Math.atan2(выход.y - world.player.y, выход.x - world.player.x) + (rnd() - 0.5) * 1.2
+          : rnd() * Math.PI * 2;
         intent.moveX = Math.cos(a);
         intent.moveY = Math.sin(a);
       } else if (rnd() < 0.03) {
