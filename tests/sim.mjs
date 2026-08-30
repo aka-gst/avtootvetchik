@@ -289,18 +289,32 @@ function cast(world, stack, angle) {
        */
       const tx = i % w.w;
       const ty = (i / w.w) | 0;
-      let walls = 0;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const wall = (ox, oy) => {
         const nx = tx + ox;
         const ny = ty + oy;
-        if (nx < 0 || ny < 0 || nx >= w.w || ny >= w.h) { walls += 1; continue; }
-        if (w.tiles[ny * w.w + nx] === TILE.WALL) walls += 1;
-      }
+        if (nx < 0 || ny < 0 || nx >= w.w || ny >= w.h) return true;
+        return w.tiles[ny * w.w + nx] === TILE.WALL;
+      };
+
+      const sideWalls = (wall(1, 0) ? 1 : 0) + (wall(-1, 0) ? 1 : 0);
+      const flatWalls = (wall(0, 1) ? 1 : 0) + (wall(0, -1) ? 1 : 0);
+      const walls = sideWalls + flatWalls;
+
+      /*
+       * Ось захода задаёт стена, а не то, с какой стороны мы подошли.
+       * Створка в горизонтальной стене — это дыра, к которой подходят
+       * сверху или снизу; выравниваться по вертикали к ней бессмысленно,
+       * там стена. Бот именно это и делал: стоял слева, видел, что по
+       * горизонтали до створки дальше, чем по вертикали, шёл выравнивать
+       * вертикаль, упирался в стену и через четыре секунды стрелял в неё
+       * же — по диагонали, мимо.
+       */
+      const axis = sideWalls > flatWalls ? 'x' : (flatWalls > sideWalls ? 'y' : null);
 
       const gap = Math.hypot(x - player.x, y - player.y) - (walls >= 2 ? 4000 : 0);
       if (gap >= bestGap) continue;
       bestGap = gap;
-      best = { x, y, tile: w.tiles[i] };
+      best = { x, y, tile: w.tiles[i], axis };
     }
     return best;
   }
@@ -309,11 +323,14 @@ function cast(world, stack, angle) {
      Без этого «игрок убит» одинаково означает и злого врага, и свой же
      пожар, и собственную лужу под током. */
   world.botDeath = null;
+  let burnedAt = null;
   world.botTrace = process.env.TRACE ? [] : null;
 
   run(world, 300, (w) => {
     const player = w.player;
     const { enemy, dist } = nearest(w);
+
+    if (w.events.some((event) => event.type === 'ignite' && event.player)) burnedAt = w.time;
 
     if (!world.botDeath) {
       if (w.events.some((event) => event.type === 'shocked-self')) world.botDeath = 'свой разряд';
@@ -324,10 +341,21 @@ function cast(world, stack, angle) {
          * убит»), а значат прямо противоположное: первое — нормальная
          * игра, второе — этаж, убивающий игрока его же инструментом.
          */
+        /*
+         * Горящий умирает ровно в тот кадр, когда пламя догорело, и
+         * burning в этот момент уже ноль. Считать по нему — значит
+         * записывать каждую смерть от огня в «убит врагом», что и
+         * происходило: причина смерти в отчёте была неверной.
+         */
         const burned = (player.burning || 0) > 0
-          || groundAt(w, player.x, player.y) === GROUND.FIRE;
+          || groundAt(w, player.x, player.y) === GROUND.FIRE
+          || (burnedAt !== null && w.time - burnedAt < 3);
+        const near = w.enemies.filter((e) => e.alive
+          && Math.hypot(e.x - player.x, e.y - player.y) < 120)
+          .map((e) => `${Math.round(e.x)},${Math.round(e.y)}`);
         world.botDeath = burned ? 'сгорел' : 'убит врагом';
-        world.botDeathWhere = `${Math.round(player.x)},${Math.round(player.y)}`;
+        world.botDeathWhere = `${Math.round(player.x)},${Math.round(player.y)}`
+          + (near.length ? ` рядом:${near.join(';')}` : ' рядом никого');
       }
     }
 
@@ -401,7 +429,7 @@ function cast(world, stack, angle) {
        */
       const dx = breaking.x - player.x;
       const dy = breaking.y - player.y;
-      const alongY = Math.abs(dy) >= Math.abs(dx);
+      const alongY = breaking.axis ? breaking.axis === 'x' : Math.abs(dy) >= Math.abs(dx);
 
       /* Далеко — сначала дойти, и дойти по-настоящему, через двери. */
       if (Math.hypot(dx, dy) > TILE_SIZE * 7) {
@@ -464,7 +492,7 @@ function cast(world, stack, angle) {
       }
 
       if (player.stack.length) {
-        if (world.botTrace) world.botTrace.push(`${w.elements[tryElement % w.elements.length]}@${Math.round(breaking.x)},${Math.round(breaking.y)}`);
+        if (world.botTrace) world.botTrace.push(`${w.elements[tryElement % w.elements.length]}@${Math.round(breaking.x)},${Math.round(breaking.y)}из${Math.round(player.x)},${Math.round(player.y)}`);
         /*
          * Не «стой смирно ещё полторы секунды», а «попробуй снова через
          * треть». Створке нужна своя стихия, и первая попытка чаще всего
@@ -599,7 +627,9 @@ function cast(world, stack, angle) {
        * проваливает — она пишется в отчёт как наблюдение.
        */
       check(`«${floor.title}»: чем кончилась попытка бота`, true,
-        `${world.kills}/${world.total}, ${world.botDeath || 'жив'}`);
+        `${world.kills}/${world.total}, ${world.botDeath || 'жив'}`
+        + (world.botDeathWhere ? ` на ${world.botDeathWhere}` : '')
+        + (world.botTrace ? ` [${world.botTrace.slice(0, 10).join(' ')}]` : ''));
       continue;
     }
 
@@ -1333,9 +1363,19 @@ function cast(world, stack, angle) {
   check('обучалка даёт огонь и молнию, и больше ничего',
     world.elements.join() === 'fire,bolt', world.elements.join());
 
+  /*
+   * Берётся не первая бочка, а та, под которой кто-то стоит: бочкой
+   * заперта ещё и створка между комнатами, и она в проверке ни при чём.
+   */
   let barrel = -1;
-  for (let i = 0; i < world.tiles.length; i += 1) {
-    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  for (let i = 0; i < world.tiles.length && barrel < 0; i += 1) {
+    if (world.tiles[i] !== TILE.BARREL) continue;
+    const bxx = ((i % world.w) + 0.5) * TILE_SIZE;
+    const byy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+    const below = world.enemies.filter((enemy) => enemy.alive
+      && Math.abs(enemy.x - bxx) <= TILE_SIZE * 1.2
+      && enemy.y - byy > 0 && enemy.y - byy <= TILE_SIZE * 1.6).length;
+    if (below >= 3) barrel = i;
   }
   check('в обучалке есть бочка', barrel >= 0);
 
@@ -1428,9 +1468,19 @@ function cast(world, stack, angle) {
    * человеком за игрой — тем обиднее.
    */
   const world = createWorld(TUTOR);
+  /*
+   * Берётся не первая бочка, а та, под которой кто-то стоит: бочкой
+   * заперта ещё и створка между комнатами, и она в проверке ни при чём.
+   */
   let barrel = -1;
-  for (let i = 0; i < world.tiles.length; i += 1) {
-    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  for (let i = 0; i < world.tiles.length && barrel < 0; i += 1) {
+    if (world.tiles[i] !== TILE.BARREL) continue;
+    const bxx = ((i % world.w) + 0.5) * TILE_SIZE;
+    const byy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+    const below = world.enemies.filter((enemy) => enemy.alive
+      && Math.abs(enemy.x - bxx) <= TILE_SIZE * 1.2
+      && enemy.y - byy > 0 && enemy.y - byy <= TILE_SIZE * 1.6).length;
+    if (below >= 3) barrel = i;
   }
 
   const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
@@ -1596,9 +1646,19 @@ function cast(world, stack, angle) {
    * Одно нажатие, три следствия — и ни одно из них не работает в одиночку.
    */
   const world = createWorld(TUTOR);
+  /*
+   * Берётся не первая бочка, а та, под которой кто-то стоит: бочкой
+   * заперта ещё и створка между комнатами, и она в проверке ни при чём.
+   */
   let barrel = -1;
-  for (let i = 0; i < world.tiles.length; i += 1) {
-    if (world.tiles[i] === TILE.BARREL) { barrel = i; break; }
+  for (let i = 0; i < world.tiles.length && barrel < 0; i += 1) {
+    if (world.tiles[i] !== TILE.BARREL) continue;
+    const bxx = ((i % world.w) + 0.5) * TILE_SIZE;
+    const byy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+    const below = world.enemies.filter((enemy) => enemy.alive
+      && Math.abs(enemy.x - bxx) <= TILE_SIZE * 1.2
+      && enemy.y - byy > 0 && enemy.y - byy <= TILE_SIZE * 1.6).length;
+    if (below >= 3) barrel = i;
   }
 
   const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
