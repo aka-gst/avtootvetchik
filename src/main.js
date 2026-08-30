@@ -20,6 +20,7 @@ import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
 import { createTrace, traceEvent, traceKey } from './trace.js';
+import { createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
 
 const $ = (id) => document.getElementById(id);
@@ -701,6 +702,9 @@ let trace = createTrace();
    одна только что легла, и её ячейку надо зажечь. */
 let landed = 0;
 
+/* Идёт съёмка витрины. Пока не null — игра стоит, а кадр рисует сцена. */
+let shooting = null;
+
 function jab(kind, first) {
   const seen = jabSeen[kind] || 0;
   jabSeen[kind] = seen + 1;
@@ -1066,6 +1070,16 @@ function step(now) {
 
   resize();
 
+  /*
+   * На съёмке свой цикл игры молчит, но отрисовка работает. Останавливать
+   * надо ход, а не рисование: холст очищается при любом изменении размера,
+   * и остановленная отрисовка даёт пустой кадр вместо сцены.
+   */
+  if (shooting) {
+    shooting.render();
+    return;
+  }
+
   const raw = input.read();
 
   if (input.tookKey('KeyB')) toggleTome();
@@ -1323,6 +1337,60 @@ window.avto = {
   get renderer() { return renderer; },
   get view() { return lastView; },
   get picked() { return picked; },
+
+  /*
+   * СНАРЯД ДЛЯ ВИТРИНЫ
+   * ---------------------------------------------------------
+   * Ставит сцену и отдаёт рычаги: шаг, отрисовку, состояние. Снимает
+   * другой — это разделение труда, а не лень: сцену умеет поставить
+   * только тот, кто знает игру.
+   *
+   *   const s = window.avto.showcase();     // сцена стоит, игра молчит
+   *   while (s.state().упавших < 2) s.step(1/60);
+   *   s.render();                           // кадр в холсте
+   *   s.stop();                             // вернуть игру
+   *
+   * Без аргументов сцена ещё и играет сама, с постоянным шагом: этого
+   * хватает, чтобы снять петлю простым захватом холста.
+   */
+  showcase(options = {}) {
+    const seed = options.seed || 20260830;
+    const made = withSeed(seed, () => createShowcase(CAMPAIGN[0], renderer));
+
+    document.body.classList.add('is-shooting');
+
+    /* Каждый шаг и каждая отрисовка идут под тем же сидом: иначе искры
+       и дым разойдутся на втором прогоне, и «детерминировано» окажется
+       неправдой ровно там, где это важнее всего. */
+    const wrapped = {
+      world: made.world,
+      step: (dt) => withSeed((seed + Math.round(made.state().секунд * 1000)) >>> 0,
+        () => made.step(dt)),
+      render: () => withSeed(seed, () => made.render()),
+      state: () => made.state(),
+      stop() {
+        shooting = null;
+        document.body.classList.remove('is-shooting');
+        renderer.invalidate();
+      },
+    };
+
+    /* Кадр рисует обёртка, а не сама сцена: подменять её собственный
+       метод — верный способ получить бесконечную рекурсию, что и вышло
+       с первой попытки. */
+    shooting = wrapped;
+
+    if (options.play !== false) {
+      const tick = () => {
+        if (shooting !== wrapped) return;
+        wrapped.step(1 / 60);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+
+    return wrapped;
+  },
 };
 
 const fromHash = levelFromHash();

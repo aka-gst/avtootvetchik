@@ -135,6 +135,15 @@ export function createRenderer(canvas) {
    * носом в две клетки.
    */
   function zoomFor(world) {
+    /*
+     * Съёмка просит крупный план и получает его напрямую. Иначе камера
+     * считает так, чтобы этаж влез целиком, — а на витрине от этого
+     * фигура доезжает до зрителя размером в двенадцать пикселей, и по
+     * кадру нельзя понять, во что играют. Приближение — не свет, светом
+     * это не чинится.
+     */
+    if (world && world.zoomOverride) return world.zoomOverride;
+
     const short = Math.min(viewW, viewH);
     const base = Math.max(1.05, Math.min(2, short / 520));
     if (!world) return base;
