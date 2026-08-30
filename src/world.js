@@ -224,6 +224,31 @@ function moveBody(world, body, dx, dy) {
   }
 }
 
+/*
+ * Переключить питание этажа. Силовые двери меняются самой плиткой, а не
+ * флагом: клетка, которая меняется, говорит правду всем сразу — и поиску
+ * пути, и конусу зрения, и полёту снаряда, — без единой новой проверки.
+ */
+export function setPower(world, on) {
+  if (world.powered === on) return;
+  world.powered = on;
+
+  const from = on ? TILE.FORCE_OFF : TILE.FORCE;
+  const to = on ? TILE.FORCE : TILE.FORCE_OFF;
+  let changed = 0;
+
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] !== from) continue;
+    world.tiles[i] = to;
+    changed += 1;
+  }
+
+  if (changed) {
+    world.rebake = true;
+    world.events.push({ type: 'power', on, doors: changed });
+  }
+}
+
 function slam(world, body, speed) {
   if (!body.alive) return;
 
@@ -466,6 +491,9 @@ export function createWorld(level) {
     fx: { shake: 0, hitstop: 0, flash: 0, punch: 0 },
     beats: [],
     charged: null,
+
+    /* Питание этажа. Пока есть — силовые двери держат. */
+    powered: true,
 
     /*
      * Всплывающие подписи прямо в мире: «+300 ПО ВОДЕ» там, где это
@@ -1449,6 +1477,12 @@ function shatter(world, at, substance) {
    * бьющегося стекла. Заметить обязаны все, кто в комнате.
    */
   if (tile === TILE.PANEL) {
+    /*
+     * Щиток не только шумит — он переключает питание этажа, и силовые
+     * двери падают вместе с ним. Два следствия одного удара: страже
+     * слышно там, а игроку открыто здесь.
+     */
+    setPower(world, !world.powered);
     spark(world, x, y, 0, 3.2, 22, '#ffe14d', 260);
     spark(world, x, y, 0, 3.2, 14, '#9fe8ff', 200);
     emitNoise(world, x, y, 360, 'panel');

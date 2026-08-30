@@ -285,7 +285,13 @@ function cast(world, stack, angle) {
        * до врагов: дверь ломается, но через неё и так ходят, а значит
        * ломать её незачем. Спрашиваем не «ломается ли», а «держит ли».
        */
-      if (!blocksMove(w.tiles[i])) continue;
+      /*
+       * Преграда обязана преграждать — либо открывать. Щиток сам проход
+       * не держит, но силовые двери держатся на нём: когда дороги нет и
+       * ломать нечего, живой игрок идёт искать щиток, и бот обязан уметь
+       * то же, иначе этаж с силовой дверью для него непроходим.
+       */
+      if (!blocksMove(w.tiles[i]) && w.tiles[i] !== TILE.PANEL) continue;
       const x = ((i % w.w) + 0.5) * TILE_SIZE;
       const y = (((i / w.w) | 0) + 0.5) * TILE_SIZE;
       /*
@@ -1940,6 +1946,47 @@ function cast(world, stack, angle) {
 
   check('разогнанный в стену не встаёт', !вСтену(400));
   check('идущий в стену своим ходом цел', вСтену(60));
+}
+
+
+/* --- P6. Силовая дверь падает вместе с питанием --- */
+{
+  /*
+   * Первая дверь, которую не открывают силой. Ни огонь, ни удар, ни
+   * разряд по ней самой не работают — работает только то, что она
+   * питается: обесточил и прошёл.
+   *
+   * И это тот же щиток, только со вторым следствием: один удар уводит
+   * стражу туда и открывает дорогу здесь.
+   */
+  const world = createWorld(TUTOR);
+  world.elements = [...ELEMENT_ORDER];
+
+  const силовых = () => world.tiles.filter((tile) => tile === TILE.FORCE).length;
+  const открытых = () => world.tiles.filter((tile) => tile === TILE.FORCE_OFF).length;
+
+  check('в парке есть силовая дверь', силовых() > 0, `${силовых()} клеток`);
+  check('под напряжением она держит проход', blocksMove(TILE.FORCE));
+  check('обесточенная не держит', !blocksMove(TILE.FORCE_OFF));
+
+  let panel = -1;
+  for (let i = 0; i < world.tiles.length && panel < 0; i += 1) {
+    if (world.tiles[i] === TILE.PANEL) panel = i;
+  }
+
+  const px = ((panel % world.w) + 0.5) * TILE_SIZE;
+  const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
+  const было = силовых();
+
+  for (const enemy of world.enemies) enemy.alive = false;
+  world.player.x = px + TILE_SIZE * 4;
+  world.player.y = py;
+  cast(world, ['bolt'], Math.PI);
+  run(world, 1);
+
+  check('щиток обесточил этаж', world.powered === false);
+  check('силовые двери открылись', открытых() === было && силовых() === 0,
+    `было ${было}, открыто ${открытых()}, осталось ${силовых()}`);
 }
 
 

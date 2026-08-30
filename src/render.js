@@ -461,6 +461,42 @@ export function createRenderer(canvas) {
         continue;
       }
 
+      if (tile === TILE.FORCE) {
+        /*
+         * Силовая дверь светится и сквозь неё видно: она обещает то, чего
+         * не даёт, — вот проход, и вот ты в него не пройдёшь. Гаснет
+         * вместе с питанием, и тогда её здесь просто нет.
+         */
+        const hum = 0.55 + Math.sin(world.time * 6 + i) * 0.3;
+        g.save();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = `rgba(90,200,255,${0.12 + hum * 0.1})`;
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        g.strokeStyle = `rgba(150,230,255,${0.5 + hum * 0.4})`;
+        g.lineWidth = 2;
+        for (let k = 0; k < 3; k += 1) {
+          const oy = py + (k + 0.5) * (TILE_SIZE / 3);
+          g.beginPath();
+          g.moveTo(px + 2, oy);
+          g.lineTo(px + TILE_SIZE - 2, oy);
+          g.stroke();
+        }
+        g.restore();
+        continue;
+      }
+
+      if (tile === TILE.METAL) {
+        /* Металл глухой: ни огня, ни взгляда. Только вмятины. */
+        g.fillStyle = '#4a5462';
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        g.strokeStyle = '#69768a';
+        g.lineWidth = 1.4;
+        g.strokeRect(px + 2.5, py + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+        g.fillStyle = '#8d9aad';
+        g.fillRect(px + TILE_SIZE / 2 - 5, py + TILE_SIZE / 2 - 1.5, 10, 3);
+        continue;
+      }
+
       if (tile === TILE.PANEL) {
         /*
          * Щиток. Коробка на стене с двумя лампами и рубильником — вещь
