@@ -35,8 +35,22 @@ export function createAudio() {
   let started = false;
   let intensity = 0;
 
+  /*
+    На боевом сайте музыка включена с первой секунды — так
+    задумано. А локальный предпросмотр открывается заново
+    десятки раз за вечер, каждый раз на новом порту, и
+    localStorage там всегда пустой: музыка запускалась бы
+    снова и снова. Поэтому на localhost умолчание — тишина,
+    а явно сохранённый выбор всё равно сильнее умолчания.
+  */
   try {
-    muted = localStorage.getItem('avto-muted') === '1';
+    const saved = localStorage.getItem('avto-muted');
+
+    const local =
+      /^(localhost|127\.0\.0\.1|\[::1\])$/.test(
+        window.location.hostname);
+
+    muted = saved === null ? local : saved === '1';
   } catch (error) {
     muted = false;
   }
