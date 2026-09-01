@@ -30,6 +30,7 @@ export const BY_EVENT = {
   fling: 'telo',           /* сбил одного другим */
   backfire: 'sam',         /* задел себя вспышкой */
   'shocked-self': 'sam',   /* и своей же лужей */
+  gust: 'veter',           /* толкнул ветром — сам по себе не убивает */
   knock: 'sbil',           /* сбил с ног */
   slam: 'stena',           /* разогнал в стену */
   power: 'pitanie',        /* переключил питание этажа */
