@@ -17,6 +17,7 @@
 - Каждый путь проверяется настоящим `createWorld()` и `update()`, а не подменой тайла в тесте.
 - Счётчик растёт только после необратимой перемены мира: створка/кристалл разрушены или силовые клетки обесточены.
 - Телефонный ввод не меняется; игра использует уже существующие экранные кнопки стихий и «ПУСК».
+- Формат уровня версии 4 несёт один бит `systemic`; версии 1–3 декодируются с `systemic: false`, без сдвига старых полей.
 - Не делать `push` или внешнюю выкладку.
 
 ---
@@ -119,10 +120,11 @@ Expected: route/counter checks fail because the new world counter and level meta
 - [ ] **Step 3: Write minimal implementation**
 
 1. Return `systemic: Boolean(meta.systemic)` from `fromAscii()`.
-2. In `createWorld()`, initialise `systemic` only for such a level: `{ actions: 0, last: '' }`.
-3. Add a private `creditConsequence(world, kind, x, y)` that no-ops outside system levels and otherwise increments `actions`, sets `last`, and emits the `consequence` event.
-4. Call it only after a `shatter()` changed a door, metal cell, or crystal; call it from `setPower()` only when it actually changed at least one `FORCE` cell.
-5. After world entities are built, call existing `openExit(world)` when `world.total === 0`, so a zero-enemy puzzle room never looks locked.
+2. Bump `FORMAT_VERSION` to 4, write one `systemic` bit after `track`, and decode it only for version 4; old level codes retain their old bit layout and decode to `false`.
+3. In `createWorld()`, initialise `systemic` only for such a level: `{ actions: 0, last: '' }`.
+4. Add a private `creditConsequence(world, kind, x, y)` that no-ops outside system levels and otherwise increments `actions`, sets `last`, and emits the `consequence` event.
+5. Call it only after a `shatter()` changed a door, metal cell, or crystal; call it from `setPower()` only when it actually changed at least one `FORCE` cell.
+6. After world entities are built, call existing `openExit(world)` when `world.total === 0`, so a zero-enemy puzzle room never looks locked.
 
 - [ ] **Step 4: Run test to verify it passes**
 

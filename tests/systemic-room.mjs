@@ -6,7 +6,7 @@
  */
 
 import { SYSTEMIC_ROOM, systemicLabel } from '../src/systemic-room.js';
-import { TILE } from '../src/level.js';
+import { decode, encode, TILE } from '../src/level.js';
 import { buildFlowField } from '../src/ai.js';
 import { createWorld, tileIndex, TILE_SIZE, update } from '../src/world.js';
 import { CAMPAIGN } from '../src/levels.js';
@@ -87,6 +87,9 @@ check('выход открыт в пустой комнате, но всё ещ�
 check('системная комната доступна как обычный этаж кампании', CAMPAIGN.includes(SYSTEMIC_ROOM));
 check('у комнаты доступны все пять стихий',
   SYSTEMIC_ROOM.elements.join(',') === 'fire,water,wind,earth,bolt', SYSTEMIC_ROOM.elements.join(','));
+check('код комнаты сохраняет системный режим для ссылки-вызова',
+  decode(encode(SYSTEMIC_ROOM)).systemic === true,
+  String(decode(encode(SYSTEMIC_ROOM)).systemic));
 check('обратная связь называет дерево, металл, кристалл и питание',
   ['wood', 'metal', 'crystal', 'power'].map(systemicLabel).join('|')
     === 'ДЕРЕВО ГОРИТ|МЕТАЛЛ СМЯТ|КРИСТАЛЛ РАЗРЯЖЕН|ПИТАНИЕ СНЯТО');
