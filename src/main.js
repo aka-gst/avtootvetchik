@@ -7,6 +7,7 @@
  */
 
 import { CAMPAIGN } from './levels.js';
+import { systemicLabel } from './systemic-room.js';
 import { decode, encode } from './level.js';
 import { createWorld, update } from './world.js';
 import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget, keepPicked, cycleTarget, targetNear } from './aim.js';
@@ -49,6 +50,8 @@ const ui = {
   scoreTotal: $('scoreTotal'),
   scoreBest: $('scoreBest'),
   score: $('score'),
+  systemic: $('systemic'),
+  systemicActions: $('systemicActions'),
   combo: $('combo'),
   target: $('target'),
   targetTime: $('targetTime'),
@@ -950,6 +953,13 @@ function updateHud(force) {
 
   ui.score.textContent = score.state.score;
 
+  if (world.systemic) {
+    ui.systemic.hidden = false;
+    ui.systemicActions.textContent = world.systemic.actions;
+  } else {
+    ui.systemic.hidden = true;
+  }
+
   const combo = score.state.combo;
   if (combo > 1) {
     if (ui.combo.hidden || ui.combo.dataset.value !== String(combo)) {
@@ -1056,6 +1066,9 @@ function drainEvents() {
          сделал что-то большее, чем обычный выстрел. */
       setToast(`ЦЕПЬ ×${event.size}`, 1.8);
       vibrate([15, 25, 15]);
+    } else if (event.type === 'consequence') {
+      setToast(`СВЯЗЬ ${event.actions} · ${systemicLabel(event.kind)}`, 1.8);
+      vibrate(12);
     } else if (event.type === 'barrel') {
       /* Про воду больше не пишем: она теперь растекается на глазах, и
          подпись успевала объявить её раньше, чем она появлялась. */

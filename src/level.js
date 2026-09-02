@@ -476,6 +476,7 @@ export function fromAscii(rows, meta = {}) {
     w, h, tiles, entities, spawn,
     theme: meta.theme || 0,
     track: meta.track || 0,
+    systemic: Boolean(meta.systemic),
     /* Этаж, ничего не сказавший про стихии, даёт все: молчание автора
        не должно означать запрет. Кампания говорит про каждый этаж. */
     elements: meta.elements || [...ELEMENT_BITS],

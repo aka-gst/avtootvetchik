@@ -27,6 +27,7 @@
  */
 
 import { fromAscii } from './level.js';
+import { SYSTEMIC_ROOM } from './systemic-room.js';
 
 const FLOORS = [
   {
@@ -222,7 +223,7 @@ const FLOORS = [
   },
 ];
 
-export const CAMPAIGN = FLOORS.map((floor) => {
+export const CAMPAIGN = [...FLOORS.map((floor) => {
   const level = fromAscii(floor.rows, floor);
   level.title = floor.title;
   level.call = floor.call;
@@ -230,4 +231,4 @@ export const CAMPAIGN = FLOORS.map((floor) => {
      не несёт, и чужой этаж по ссылке никогда не станет обучалкой. */
   level.tutorial = Boolean(floor.tutorial);
   return level;
-});
+}), SYSTEMIC_ROOM];

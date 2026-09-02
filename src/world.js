@@ -281,8 +281,20 @@ export function setPower(world, on) {
 
   if (changed) {
     world.rebake = true;
+    creditConsequence(world, 'power');
     world.events.push({ type: 'power', on, doors: changed });
   }
+}
+
+/*
+ * Системная комната считает не нажимания, а изменения мира. Обычным этажам
+ * этот счётчик не нужен: для них он остаётся null и не меняет их HUD.
+ */
+function creditConsequence(world, kind, x = null, y = null) {
+  if (!world.systemic) return;
+  world.systemic.actions += 1;
+  world.systemic.last = kind;
+  world.events.push({ type: 'consequence', kind, actions: world.systemic.actions, x, y });
 }
 
 function slam(world, body, speed) {
@@ -519,6 +531,7 @@ export function createWorld(level) {
     state: 'play',
     exitOpen: false,
     alarm: 0,
+    systemic: level.systemic ? { actions: 0, last: '' } : null,
 
     flow: null,
     flowTimer: 0,
@@ -616,6 +629,10 @@ export function createWorld(level) {
     /* Типы 3 и 4 — оружие на полу из старых кодов. Подбирать нечего,
        поэтому они просто пропускаются: чужой код всё равно откроется. */
   }
+
+  /* Пустая комната — задача на материал и путь, а не на несуществующую
+     зачистку. Выход всё равно отделён реальными препятствиями карты. */
+  if (world.total === 0) openExit(world);
 
   createField(world);
   world.flow = buildFlowField(world, world.player.x, world.player.y);
@@ -1586,6 +1603,7 @@ function shatter(world, at, substance) {
     spark(world, x, y, 0, 3.2, 16, '#fff2a8', 220);
     emitNoise(world, x, y, 320, 'crystal');
     world.events.push({ type: 'crystal', x, y });
+    creditConsequence(world, 'crystal', x, y);
     discharge(world, x, y, JOLT);
     return true;
   }
@@ -1600,6 +1618,7 @@ function shatter(world, at, substance) {
     spark(world, x, y, 0, 3.2, 12, '#ffb347', 170);
     emitNoise(world, x, y, 240, 'hay');
     world.events.push({ type: 'hay', x, y });
+    if (tile === TILE.DOOR) creditConsequence(world, 'wood', x, y);
 
     const wx = at % world.w;
     const wy = (at / world.w) | 0;
@@ -1674,6 +1693,7 @@ function shatter(world, at, substance) {
     return true;
   }
 
+  if (tile === TILE.METAL) creditConsequence(world, 'metal', x, y);
   spark(world, x, y, 0, 3.2, 12, '#c9a27a', 170);
   emitNoise(world, x, y, 240, 'boulder');
   world.events.push({ type: 'boulder', x, y });
