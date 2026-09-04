@@ -847,7 +847,8 @@ export function resisted(world, enemy, angle, source = {}) {
 }
 
 export function knockDown(world, enemy, angle, срок = DOWN_TIME) {
-  enemy.downed = срок;
+  enemy.unconscious = Boolean(world.operation);
+  enemy.downed = enemy.unconscious ? Number.POSITIVE_INFINITY : срок;
   enemy.state = 'down';
   enemy.vx += Math.cos(angle) * 260;
   enemy.vy += Math.sin(angle) * 260;
@@ -983,6 +984,7 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
   }
 
   enemy.alive = false;
+  enemy.unconscious = false;
   world.kills += 1;
 
   /*
@@ -2270,11 +2272,11 @@ function updateEnemy(world, enemy, dt) {
     scorch(world, enemy, dt);
     if (!enemy.alive) return;
 
-    enemy.downed -= dt;
+    if (!enemy.unconscious) enemy.downed -= dt;
     enemy.vx *= 0.86;
     enemy.vy *= 0.86;
     moveBody(world, enemy, enemy.vx * dt, enemy.vy * dt);
-    if (enemy.downed <= 0) {
+    if (!enemy.unconscious && enemy.downed <= 0) {
       enemy.state = 'alert';
       enemy.heard = { x: world.player.x, y: world.player.y };
       /* Пробуждение — событие, а не тихая смена поля. Без него судьбу

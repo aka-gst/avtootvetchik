@@ -5,7 +5,7 @@
  */
 
 import { decode, encode, ENTITY, fromAscii } from '../src/level.js';
-import { createWorld, TILE_SIZE, update } from '../src/world.js';
+import { createWorld, knockDown, TILE_SIZE, update } from '../src/world.js';
 import { operationResult } from '../src/operation.js';
 
 const report = [];
@@ -46,6 +46,32 @@ function step(world, frames = 1) {
 function place(body, cellX, cellY) {
   body.x = cellX * TILE_SIZE + TILE_SIZE / 2;
   body.y = cellY * TILE_SIZE + TILE_SIZE / 2;
+}
+
+{
+  const rows = [
+    '########',
+    '#@...tX#',
+    '########',
+  ];
+  const operationWorld = createWorld(fromAscii(rows, { operation: true }));
+  const campaignWorld = createWorld(fromAscii(rows));
+  const operationGuard = operationWorld.enemies[0];
+  const campaignGuard = campaignWorld.enemies[0];
+
+  knockDown(operationWorld, operationGuard, 0, 0.1);
+  knockDown(campaignWorld, campaignGuard, 0, 0.1);
+  step(operationWorld, 60);
+  step(campaignWorld, 60);
+
+  check('в операции оглушённый не поднимается',
+    operationGuard.alive && operationGuard.downed > 0
+      && operationGuard.state === 'down',
+    `${operationGuard.alive}/${operationGuard.downed}/${operationGuard.state}`);
+  check('в старом уровне оглушённый поднимается по таймеру',
+    campaignGuard.alive && campaignGuard.downed <= 0
+      && campaignGuard.state === 'alert',
+    `${campaignGuard.alive}/${campaignGuard.downed}/${campaignGuard.state}`);
 }
 
 {
