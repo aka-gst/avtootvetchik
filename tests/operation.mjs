@@ -5,7 +5,9 @@
  */
 
 import { decode, encode, ENTITY, fromAscii } from '../src/level.js';
-import { createWorld, knockDown, TILE_SIZE, update } from '../src/world.js';
+import {
+  createWorld, knockDown, resolveBodyImpact, TILE_SIZE, update,
+} from '../src/world.js';
 import { operationResult } from '../src/operation.js';
 
 const report = [];
@@ -14,6 +16,28 @@ let failures = 0;
 function check(name, ok, detail = '') {
   report.push(`${ok ? '  ok  ' : ' FAIL '} ${name}${detail ? ` — ${detail}` : ''}`);
   if (!ok) failures += 1;
+}
+
+{
+  const level = fromAscii(['########', '#@...tX#', '########'], { operation: true });
+  const soft = createWorld(level);
+  const softGuard = soft.enemies[0];
+  resolveBodyImpact(soft, softGuard, 140);
+  check('слабый удар о стену оглушает',
+    softGuard.alive && softGuard.downed > 0,
+    `${softGuard.alive}/${softGuard.downed}`);
+
+  const hard = createWorld(level);
+  const hardGuard = hard.enemies[0];
+  resolveBodyImpact(hard, hardGuard, 260);
+  check('сильный удар о стену убивает', !hardGuard.alive, String(hardGuard.alive));
+
+  const noImpact = createWorld(level);
+  const safeGuard = noImpact.enemies[0];
+  resolveBodyImpact(noImpact, safeGuard, 90);
+  check('без сильного столкновения тело остаётся активным',
+    safeGuard.alive && safeGuard.downed === 0,
+    `${safeGuard.alive}/${safeGuard.downed}`);
 }
 
 const encodedLevel = fromAscii([

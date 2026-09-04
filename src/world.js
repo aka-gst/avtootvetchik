@@ -79,6 +79,7 @@ const DOWN_TIME = 2;
  * вырубать станет незачем.
  */
 const SLEEP_TIME = 9;
+const IMPACT_LETHAL = 220;
 
 /*
  * ЗАМЕДЛЕНИЕ — ПО ПРИЗНАКУ, А НЕ ПО СПИСКУ
@@ -305,13 +306,29 @@ function slam(world, body, speed) {
   world.fx.shake = Math.max(world.fx.shake, 5);
   world.events.push({ type: 'slam', speed: Math.round(speed) });
 
+  resolveBodyImpact(world, body, speed, angle);
+}
+
+export function resolveBodyImpact(world, body, speed, angle = 0) {
+  if (!body.alive || speed < FLING_SPEED) return false;
+
   if (body === world.player) {
     killPlayer(world, angle);
-    return;
+    return true;
   }
 
-  killEnemy(world, body, angle, 'slam',
-    { by: 'player', weapon: 'wall', elements: [] });
+  if (speed < IMPACT_LETHAL && world.enemies.includes(body)) {
+    knockDown(world, body, angle);
+    return true;
+  }
+
+  if (world.enemies.includes(body)) {
+    killEnemy(world, body, angle, 'slam',
+      { by: 'player', weapon: 'wall', elements: [] });
+    return true;
+  }
+
+  return false;
 }
 
 /*
