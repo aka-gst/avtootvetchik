@@ -133,6 +133,7 @@ function targetAt(world, index) {
 
 function sameTarget(a, b) {
   if (!a || !b) return false;
+  if (a.worldProp || b.worldProp) return a.worldProp === b.worldProp;
   if (a.prop !== undefined || b.prop !== undefined) return a.prop === b.prop;
   return a === b;
 }
@@ -141,6 +142,7 @@ function sameTarget(a, b) {
    целью в тот же кадр, и прицел уходит дальше сам. */
 function alive(world, target) {
   if (!target) return false;
+  if (target.worldProp) return target.worldProp.kind === 'candle' && !target.worldProp.lit;
   if (target.prop !== undefined) return weakTo(world.tiles[target.prop]) !== null;
   return Boolean(target.alive);
 }
@@ -164,7 +166,8 @@ function visible(world, target, limit) {
    * ровно те вещи, ради которых прицел по предметам и делался. Видно их
    * при этом было прекрасно.
    */
-  const back = target.prop !== undefined ? Math.min(dist - 1, TILE_SIZE * 0.7) : 0;
+  const back = target.prop !== undefined || target.worldProp
+    ? Math.min(dist - 1, TILE_SIZE * 0.7) : 0;
   const face = { x: target.x - (dx / dist) * back, y: target.y - (dy / dist) * back };
 
   return hasSight(world, player.x, player.y, face.x, face.y);
@@ -187,6 +190,9 @@ export function lockCandidates(world, facing, limit = LOCK_RANGE) {
   for (const enemy of world.enemies) add(enemy, 0);
   for (let i = 0; i < world.tiles.length; i += 1) {
     if (weakTo(world.tiles[i])) add(targetAt(world, i), PROP_PENALTY);
+  }
+  for (const prop of world.props || []) {
+    if (prop.kind === 'candle' && !prop.lit) add({ worldProp: prop, x: prop.x, y: prop.y }, PROP_PENALTY);
   }
 
   return out.sort((a, b) => a.score - b.score).map((entry) => entry.target);

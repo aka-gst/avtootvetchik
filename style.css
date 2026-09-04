@@ -311,6 +311,7 @@ body.is-shooting .tome {
   justify-items: center;
   gap: 2px;
   width: 62px;
+  min-height: 44px;
   padding: 7px 4px 6px;
   border: 1px solid currentColor;
   border-radius: 3px;
@@ -361,6 +362,7 @@ body.is-shooting .tome {
   top: calc(max(10px, env(safe-area-inset-top)) + 44px);
   right: max(10px, env(safe-area-inset-right));
   z-index: 1000;
+  min-height: 44px;
   padding: 8px 10px;
   border: 1px solid #ffffff22;
   background: #0b0713e6;
@@ -389,6 +391,39 @@ body.is-shooting .tome {
   white-space: nowrap;
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+.operation-hud {
+  position: fixed;
+  left: 50%;
+  top: max(76px, calc(env(safe-area-inset-top) + 70px));
+  z-index: 8;
+  display: grid;
+  gap: 3px;
+  width: min(560px, calc(100vw - 160px));
+  padding: 8px 12px;
+  border: 1px solid #7ffcff55;
+  background: #061013d9;
+  color: #d9ffff;
+  font: 700 10px var(--mono);
+  letter-spacing: .1em;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.operation-hud[hidden], .operation-hud span[hidden] { display: none; }
+.operation-hud b { color: #7ffcff; font-size: 12px; }
+#operationOptional { color: #ffd27f; }
+#operationLesson { color: #ffffffaa; }
+
+@media (max-width: 700px) {
+  .operation-hud {
+    top: max(68px, calc(env(safe-area-inset-top) + 62px));
+    width: calc(100vw - 118px);
+    font-size: 8px;
+    letter-spacing: .06em;
+  }
 }
 
 
@@ -491,7 +526,8 @@ body.is-shooting .tome {
    различимой кнопкой, а звук и часы ужимаются до строчки.
    ========================================================= */
 
-@media (pointer: coarse) and (orientation: portrait) {
+@media (pointer: coarse) and (orientation: portrait),
+       (max-width: 700px) and (orientation: portrait) {
   #screen {
     inset: 0 0 auto 0;
     height: 74%;
@@ -572,7 +608,7 @@ body.is-shooting .tome {
     font: 700 8px var(--mono);
   }
 
-  .game-home-menu { left: calc(max(12px, env(safe-area-inset-left)) + 64px); }
+  .game-home-menu { left: calc(max(12px, env(safe-area-inset-left)) + 82px); }
 
   .toast { bottom: calc(26% + 12px); }
   .found { top: 32%; }

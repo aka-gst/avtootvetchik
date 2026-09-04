@@ -80,6 +80,8 @@ const ROBES = {
   thug:   { robe: '#3a2030', robeLit: '#6b3b53', trim: '#ff6a86', hood: '#1d0f18' },
   caster: { robe: '#2a2340', robeLit: '#4d4175', trim: '#b98cff', hood: '#150f22' },
   carrier:{ robe: '#20323a', robeLit: '#3a5c6c', trim: '#8fe6ff', hood: '#101d22' },
+  civil:  { robe: '#4a463d', robeLit: '#817667', trim: '#d7c9a7', hood: '#29261f' },
+  hostage:{ robe: '#3c4b45', robeLit: '#678277', trim: '#b9ffe4', hood: '#202a26' },
   dead:   { robe: '#22242a', robeLit: '#2c2f36', trim: '#4a4e57', hood: '#141519' },
 };
 
@@ -364,6 +366,17 @@ export function createRenderer(canvas) {
         g.moveTo(px + TILE_SIZE - 1, py + 1); g.lineTo(px + 1, py + TILE_SIZE - 1);
         g.stroke();
         g.globalAlpha = 1;
+        continue;
+      }
+
+      if (tile === TILE.WOOD) {
+        g.fillStyle = '#563523';
+        g.fillRect(px + 3, py + 1, TILE_SIZE - 6, TILE_SIZE - 2);
+        g.strokeStyle = '#d09052';
+        g.lineWidth = 2;
+        for (let x = px + 8; x < px + TILE_SIZE; x += 8) {
+          g.beginPath(); g.moveTo(x, py + 3); g.lineTo(x, py + TILE_SIZE - 3); g.stroke();
+        }
         continue;
       }
 
@@ -804,6 +817,70 @@ export function createRenderer(canvas) {
      * не может иметь ни света сверху, ни ирокеза, ни асимметрии — а ровно
      * из этого и состоит вид законченной игры.
      */
+    if (o.corpse) {
+      const corpseSheet = art('mage-corpse');
+      if (corpseSheet) {
+        drawDirFrame(g, corpseSheet, o.angle, 0, x, y, MAGE_SIZE);
+      } else {
+        g.save();
+        g.translate(x, y);
+        g.rotate(o.angle);
+        g.fillStyle = palette.robe;
+        g.beginPath();
+        g.ellipse(0, 0, BODY + 5, BODY - 1, 0, 0, 6.29);
+        g.fill();
+        g.strokeStyle = '#d7cbd7';
+        g.globalAlpha = 0.65;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(-5, -5); g.lineTo(5, 5);
+        g.moveTo(5, -5); g.lineTo(-5, 5);
+        g.stroke();
+        g.restore();
+      }
+      return;
+    }
+
+    if (o.downed) {
+      const proneSheet = o.sheet && art(`mage-${o.sheet}-idle`);
+      const breath = 1 + Math.sin((o.phase || 0) * 0.7) * 0.025;
+      g.save();
+      g.translate(x, y);
+      g.rotate(o.angle + Math.PI / 2);
+      g.scale(1.08, breath * 0.72);
+      if (proneSheet) {
+        drawDirFrame(g, proneSheet, 0, 0, 0, 0, MAGE_SIZE);
+      } else {
+        g.fillStyle = palette.robe;
+        g.beginPath();
+        g.ellipse(0, 0, BODY + 5, BODY - 1, 0, 0, 6.29);
+        g.fill();
+        g.fillStyle = palette.hood;
+        g.beginPath();
+        g.arc(BODY + 5, 0, 5, 0, 6.29);
+        g.fill();
+        g.strokeStyle = palette.trim;
+        g.globalAlpha = 0.8;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(-BODY - 7, -BODY + 2);
+        g.lineTo(BODY + 10, -BODY + 2);
+        g.stroke();
+      }
+      g.restore();
+      if (o.breathing) {
+        const inhale = 0.45 + Math.sin((o.phase || 0) * 0.7) * 0.25;
+        g.strokeStyle = `rgba(127,252,255,${inhale})`;
+        g.lineWidth = 1.4;
+        for (let ring = 0; ring < 2; ring += 1) {
+          g.beginPath();
+          g.arc(x + BODY + 7, y - 4, 3 + ring * 3, -1.1, 1.1);
+          g.stroke();
+        }
+      }
+      return;
+    }
+
     const sheet = sheetFor(o);
     if (sheet) {
       drawDirFrame(g, sheet, o.angle, Math.floor((o.phase || 0) * 2), x, y, MAGE_SIZE);
@@ -819,18 +896,6 @@ export function createRenderer(canvas) {
         g.fill();
         g.restore();
       }
-      return;
-    }
-
-    if (o.downed) {
-      g.fillStyle = palette.robe;
-      g.save();
-      g.translate(x, y);
-      g.rotate(o.angle);
-      g.beginPath();
-      g.ellipse(0, 0, BODY + 5, BODY - 1, 0, 0, 6.29);
-      g.fill();
-      g.restore();
       return;
     }
 
@@ -937,6 +1002,19 @@ export function createRenderer(canvas) {
       return;
     }
 
+    if ((body_.brittle || 0) > 0) {
+      g.save();
+      g.strokeStyle = '#b9f4ff';
+      g.globalAlpha = 0.75 + Math.sin(world.time * 12) * 0.2;
+      g.lineWidth = 2;
+      g.setLineDash([2, 3]);
+      g.beginPath();
+      g.arc(body_.x, body_.y, BODY + 9, 0, Math.PI * 2);
+      g.stroke();
+      g.setLineDash([]);
+      g.restore();
+    }
+
     const ground = groundAt(world, body_.x, body_.y);
     const wet = (body_.wet || 0) > 0;
     const colour = STATE_COLOURS[ground] || (wet ? STATE_COLOURS[GROUND.WATER] : null);
@@ -1004,7 +1082,7 @@ export function createRenderer(canvas) {
           x: 0, y: 0, angle: corpse.angle,
           palette: ROBES[corpse.kind] || ROBES.thug,
           sheet: CORPSE_SHEETS[corpse.kind] || 'punk',
-          phase: 0, downed: true,
+          phase: 0, downed: false,
         });
         g.restore();
         continue;
@@ -1012,7 +1090,7 @@ export function createRenderer(canvas) {
 
       mage(g, {
         x: corpse.x + jitter, y: corpse.y, angle: corpse.angle,
-        palette: ROBES.dead, sheet: 'corpse', phase: 0, downed: true,
+        palette: ROBES.dead, sheet: 'corpse', phase: 0, corpse: true,
       });
     }
   }
@@ -1088,6 +1166,7 @@ export function createRenderer(canvas) {
         cast: enemy.windup ? Math.min(1, enemy.windup * 3) : 0,
         charging: enemy.windup > 0,
         downed: enemy.downed > 0,
+        breathing: enemy.downed > 0,
         glow: enemy.resist ? colourOf(enemy.resist)
           : (enemy.element ? colourOf(enemy.element) : null),
       });
@@ -1114,6 +1193,61 @@ export function createRenderer(canvas) {
       if (jolt) {
         arcs(g, enemy);
         g.restore();
+      }
+    }
+  }
+
+  function drawOperationActors(g, world) {
+    const actors = [...(world.civilians || []), ...(world.hostage ? [world.hostage] : [])];
+    for (const body of actors) {
+      if (!body.alive) continue;
+      stateMark(g, world, body);
+      mage(g, {
+        x: body.x, y: body.y, angle: body.angle || 0,
+        palette: ROBES[body.kind], sheet: null,
+        moving: Math.hypot(body.vx || 0, body.vy || 0) > 12,
+        phase: world.time * 3, downed: body.downed > 0,
+        breathing: body.downed > 0,
+      });
+      if (body.kind === 'hostage' && !body.released) {
+        g.strokeStyle = '#ffcc66';
+        g.lineWidth = 2;
+        g.setLineDash([3, 3]);
+        g.beginPath(); g.arc(body.x, body.y, BODY + 7, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([]);
+      }
+    }
+  }
+
+  function drawOperationProps(g, world) {
+    for (const prop of world.props || []) {
+      if (prop.kind === 'core' && !prop.taken) {
+        g.save();
+        g.translate(prop.x, prop.y);
+        g.rotate(world.time * 0.8);
+        g.fillStyle = '#7ffcff';
+        g.shadowColor = '#32dfff';
+        g.shadowBlur = 14;
+        g.fillRect(-8, -8, 16, 16);
+        g.fillStyle = '#ffffff';
+        g.fillRect(-3, -3, 6, 6);
+        g.restore();
+      }
+      if (prop.kind === 'candle') {
+        g.fillStyle = '#e7dcc4';
+        g.fillRect(prop.x - 2, prop.y - 7, 4, 12);
+        g.fillStyle = '#1a1410';
+        g.fillRect(prop.x - 0.5, prop.y - 10, 1, 3);
+        if (prop.lit) {
+          g.save();
+          g.fillStyle = '#ffb347';
+          g.shadowColor = '#ff7a2a';
+          g.shadowBlur = 12;
+          g.beginPath();
+          g.ellipse(prop.x, prop.y - 12, 3, 6, 0, 0, Math.PI * 2);
+          g.fill();
+          g.restore();
+        }
       }
     }
   }
@@ -1833,6 +1967,8 @@ const DARKNESS = false;
     drawDecals(ctx, world);
     drawCorpses(ctx, world);
     drawProps(ctx, world, theme, range);
+    drawOperationProps(ctx, world);
+    drawOperationActors(ctx, world);
     drawEnemies(ctx, world);
     drawMatching(ctx, world, range);
     drawLock(ctx, world);

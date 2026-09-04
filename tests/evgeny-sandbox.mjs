@@ -38,13 +38,23 @@ let attempted = 0;
 function route(name, tile, stack, wrongStack, start, angle, changed, settleFrames = 120) {
   attempted += 1;
   const world = createWorld(EVGENY_SANDBOX);
-  world.player.x = (start[0] + 0.5) * TILE_SIZE;
-  world.player.y = (start[1] + 0.5) * TILE_SIZE;
+  const stagingX = (start[0] + 0.5) * TILE_SIZE;
+  const stagingY = (start[1] + 0.5) * TILE_SIZE;
+  const stagingFlow = buildFlowField(world, stagingX, stagingY);
+  check(`${name}: позиция применения достижима от старта`,
+    stagingFlow[tileIndex(world, world.player.x, world.player.y)] >= 0);
+  world.player.x = stagingX;
+  world.player.y = stagingY;
   check(`${name}: до воздействия ядро недостижимо`, !coreReachable(world));
   const target = at(world, tile);
-  cast(world, stack, angle, settleFrames);
+  cast(world, stack, angle, 0);
+  let waited = 0;
+  while (!changed(world, target) && waited < settleFrames) {
+    update(world, DT, idle);
+    waited += 1;
+  }
   check(`${name}: вещество изменило преграду`, changed(world, target),
-    `клетка=${world.tiles[target.index]} питание=${world.powered}`);
+    `клетка=${world.tiles[target.index]} питание=${world.powered} кадров=${waited}`);
   check(`${name}: после последствия ядро достижимо`, coreReachable(world));
   if (coreReachable(world)) reached += 1;
   check(`${name}: до маршрута дошёл живой игрок`, world.player.alive);
@@ -78,6 +88,20 @@ for (const type of [ENTITY.CIVIL, ENTITY.HOSTAGE, ENTITY.CORE, ENTITY.CANDLE]) {
     EVGENY_SANDBOX.entities.filter((entity) => entity.type === type).length === 1);
 }
 check('на объекте семь охранников', createWorld(EVGENY_SANDBOX).enemies.length === 7);
+
+{
+  const world = createWorld(EVGENY_SANDBOX);
+  world.player.x = 3.5 * TILE_SIZE;
+  world.player.y = 9.5 * TILE_SIZE;
+  const spillTargets = world.enemies.filter((enemy) => enemy.x / TILE_SIZE < 10.5
+    && enemy.y / TILE_SIZE >= 9 && enemy.y / TILE_SIZE <= 11);
+  cast(world, ['bolt'], 0, 120);
+  check('бочка на самой карте связывает водой минимум двух охранников',
+    world.player.alive && spillTargets.length >= 2
+      && spillTargets.every((enemy) => !enemy.alive),
+    `игрок=${world.player.alive} цели=${spillTargets.length}/${spillTargets.filter((enemy) => !enemy.alive).length}`);
+  check('естественный разряд на карте закрывает урок воды', world.operation.waterLesson);
+}
 
 route('дерево', TILE.WOOD, ['fire'], ['bolt'], [11, 11], 0,
   (world, target) => world.tiles[target.index] !== TILE.WOOD, 900);

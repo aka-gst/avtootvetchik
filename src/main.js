@@ -23,6 +23,7 @@ import { pulse } from './pulse.js';
 import { createTrace, traceEvent, traceKey, traceDelivery } from './trace.js';
 import { createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
+import { operationResult } from './operation.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -73,6 +74,10 @@ const ui = {
   foundKicker: $('foundKicker'),
   foundName: $('foundName'),
   foundNote: $('foundNote'),
+  operationHud: $('operationHud'),
+  operationGoal: $('operationGoal'),
+  operationOptional: $('operationOptional'),
+  operationLesson: $('operationLesson'),
 };
 
 /*
@@ -448,6 +453,25 @@ function clearScreen() {
   scene = 'clear';
 
   result = score.finish(world);
+
+  if (world.operation) {
+    const facts = operationResult(world);
+    const hostage = facts.hostage === 'rescued' ? 'СПАСЁН'
+      : facts.hostage === 'dead' ? 'ПОГИБ' : 'ОСТАВЛЕН';
+    showVeil({
+      tone: 'clear',
+      kicker: 'ОПЕРАЦИЯ ЗАВЕРШЕНА',
+      title: 'ЯДРО У ТЕБЯ',
+      text: 'Мир запомнил не способ, а последствия.',
+      stats: `<span>ЗАЛОЖНИК: ${hostage}</span>`
+        + `<span>МИРНЫЕ: ЖИВЫ ${facts.civiliansAlive} · ПОГИБЛИ ${facts.civiliansDead}</span>`
+        + `<span>ОХРАНА: ДЕЙСТВУЕТ ${facts.guardsActive} · БЕЗ СОЗНАНИЯ ${facts.guardsUnconscious} · ПОГИБЛА ${facts.guardsDead}</span>`
+        + `<span>ШУМНЫЕ ИНЦИДЕНТЫ ${facts.alerts} · ВРЕМЯ ${formatTime(facts.time)}</span>`,
+      action: 'ЕЩЁ РАЗ',
+      second: 'СТАРЫЕ ЭТАЖИ',
+    });
+    return;
+  }
 
   pulse('etazh-zachischen', {
     etazh: level.title,
@@ -943,6 +967,21 @@ function updateHud(force) {
   ui.kills.textContent = `${world.kills}/${world.total}`;
   ui.clock.textContent = formatTime(world.time);
 
+  if (world.operation) {
+    ui.operationHud.hidden = false;
+    ui.operationGoal.textContent = world.operation.coreTaken
+      ? 'ВЕРНУТЬСЯ К ВЫХОДУ' : 'УКРАСТЬ ЯДРО';
+    ui.operationOptional.textContent = world.hostage?.rescued
+      ? 'ЗАЛОЖНИК: СПАСЁН' : world.hostage?.alive
+        ? 'ЗАЛОЖНИК: НЕОБЯЗАТЕЛЬНО' : 'ЗАЛОЖНИК: ПОГИБ';
+    ui.operationLesson.hidden = world.operation.waterLesson;
+    ui.operationLesson.textContent = world.operation.candleLesson
+      ? 'ЛУЖА ПРОВОДИТ РАЗРЯД ПО ВСЕМ, КТО С НЕЙ СОЕДИНЁН'
+      : 'ЗАЖГИ СВЕЧУ ТОЧНО. ШИРОКИЙ ОГОНЬ ЗАДЕНЕТ ВСЁ РЯДОМ';
+  } else {
+    ui.operationHud.hidden = true;
+  }
+
   if (challenge) {
     ui.target.hidden = false;
     ui.targetTime.textContent = `${challenge.nick} ${formatTime(challenge.time)}`;
@@ -1343,6 +1382,10 @@ ui.veilAction.addEventListener('click', (event) => {
   else if (scene === 'dead') startLevel(level, { silent: true });
   else if (scene === 'clear') {
     attempts = 0;
+    if (world.operation) {
+      startLevel(level, { silent: true });
+      return;
+    }
     if (hasNextFloor()) {
       levelIndex += 1;
       /* Следующий этаж — уже не тот, на который звали: цель снимается. */
@@ -1365,7 +1408,20 @@ ui.veilSecond.addEventListener('click', (event) => {
   audio.sfx('ui');
   event.currentTarget.blur();
   if (scene === 'pause') startLevel(level, { silent: true });
-  else if (scene === 'clear') { attempts = 0; startLevel(level, { silent: true }); }
+  else if (scene === 'clear') {
+    attempts = 0;
+    if (world.operation && CAMPAIGN.length > 1) {
+      levelIndex = 1;
+      level = CAMPAIGN[levelIndex];
+      world = createWorld(level);
+      score = createScore(level, 0);
+      levelCode = encode(level);
+      view = { x: world.player.x, y: world.player.y };
+      renderer.invalidate();
+      updateHud(true);
+      callScreen();
+    } else startLevel(level, { silent: true });
+  }
 });
 
 ui.codeBox.addEventListener('focus', () => ui.codeBox.select());
@@ -1471,6 +1527,15 @@ window.technomagic = {
   audio() { return audio; },
   get view() { return lastView; },
   get picked() { return picked; },
+  state() {
+    return {
+      scene,
+      worldState: world?.state ?? null,
+      operation: world ? operationResult(world) : null,
+      coreTaken: Boolean(world?.core?.taken),
+      candleLit: Boolean(world?.props.find((prop) => prop.kind === 'candle')?.lit),
+    };
+  },
 
   /*
    * СНАРЯД ДЛЯ ВИТРИНЫ
