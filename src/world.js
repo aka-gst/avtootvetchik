@@ -13,7 +13,7 @@
  * врагов оружие осталось: бита и пистолет — это их роль, а не инвентарь.
  */
 
-import { TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable, brokenBy } from './level.js';
+import { ENTITY, TILE, TILE_SIZE, blocksMove, blocksSight, blocksShot, breakable, brokenBy } from './level.js';
 import { thinkEnemy, buildFlowField } from './ai.js';
 import { BY_EVENT } from './trace.js';
 import {
@@ -23,6 +23,7 @@ import {
   SPILL, JOLT, FLARE, BURN_TIME, WET_TIME, CHAIN_HOP,
 } from './field.js';
 import { spellOf, STACK_LIMIT, CHARGE_STEP, colourOf, ELEMENT_ORDER } from './magic.js';
+import { createOperation, updateOperation } from './operation.js';
 
 export { TILE_SIZE };
 
@@ -508,6 +509,10 @@ export function createWorld(level) {
     },
 
     enemies: [],
+    civilians: [],
+    hostage: null,
+    core: null,
+    props: [],
     bullets: [],
     particles: [],
     pops: [],
@@ -532,6 +537,7 @@ export function createWorld(level) {
     exitOpen: false,
     alarm: 0,
     systemic: level.systemic ? { actions: 0, last: '' } : null,
+    operation: createOperation(level.operation),
 
     flow: null,
     flowTimer: 0,
@@ -560,6 +566,38 @@ export function createWorld(level) {
   for (const entity of level.entities) {
     const x = entity.x * TILE_SIZE + TILE_SIZE / 2;
     const y = entity.y * TILE_SIZE + TILE_SIZE / 2;
+
+    if (entity.type === ENTITY.CIVIL || entity.type === ENTITY.HOSTAGE) {
+      const body = {
+        kind: entity.type === ENTITY.CIVIL ? 'civil' : 'hostage',
+        x, y, vx: 0, vy: 0,
+        angle: (entity.angle || 0) * (Math.PI / 4),
+        alive: true,
+        downed: 0,
+        burning: 0,
+        zap: 0,
+        wet: 0,
+        radius: BODY,
+        released: false,
+        rescued: false,
+      };
+      if (entity.type === ENTITY.CIVIL) world.civilians.push(body);
+      else world.hostage = body;
+      continue;
+    }
+
+    if (entity.type === ENTITY.CORE || entity.type === ENTITY.CANDLE) {
+      const prop = {
+        kind: entity.type === ENTITY.CORE ? 'core' : 'candle',
+        x, y,
+        radius: entity.type === ENTITY.CORE ? 11 : 7,
+        taken: false,
+        lit: false,
+      };
+      world.props.push(prop);
+      if (entity.type === ENTITY.CORE) world.core = prop;
+      continue;
+    }
 
     if (SHIELD_BY_TYPE[entity.type]) {
       world.enemies.push({
@@ -632,7 +670,8 @@ export function createWorld(level) {
 
   /* Пустая комната — задача на материал и путь, а не на несуществующую
      зачистку. Выход всё равно отделён реальными препятствиями карты. */
-  if (world.total === 0) openExit(world);
+  if (world.operation) world.exitOpen = true;
+  else if (world.total === 0) openExit(world);
 
   createField(world);
   world.flow = buildFlowField(world, world.player.x, world.player.y);
@@ -1937,6 +1976,8 @@ export function update(world, dt, intent) {
 
   updateField(world, dt);
   updatePlayer(world, dt, intent);
+  updateOperation(world, dt);
+  tryExit(world);
 
   world.flowTimer -= dt;
   const playerCell = tileIndex(world, world.player.x, world.player.y);
@@ -1977,6 +2018,16 @@ export function update(world, dt, intent) {
   maybeSlow(world);
 
   if (world.decals.length > 420) world.decals.splice(0, world.decals.length - 420);
+}
+
+export function tryExit(world) {
+  if (!world.exitOpen || world.state !== 'play'
+    || tileAt(world, world.player.x, world.player.y) !== TILE.EXIT) return false;
+  if (world.operation && !world.operation.coreTaken) return false;
+  world.state = 'clear';
+  if (world.operation) world.operation.escaped = true;
+  world.events.push({ type: 'exit' });
+  return true;
 }
 
 /*
@@ -2170,11 +2221,6 @@ function updatePlayer(world, dt, intent) {
     }
   }
 
-  /* Выход открыт — стоя на нём, этаж считается сданным. */
-  if (world.exitOpen && world.state === 'play' && tileAt(world, player.x, player.y) === TILE.EXIT) {
-    world.state = 'clear';
-    world.events.push({ type: 'exit' });
-  }
 }
 
 

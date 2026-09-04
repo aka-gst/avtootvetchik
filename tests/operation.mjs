@@ -5,6 +5,8 @@
  */
 
 import { decode, encode, ENTITY, fromAscii } from '../src/level.js';
+import { createWorld, TILE_SIZE, update } from '../src/world.js';
+import { operationResult } from '../src/operation.js';
 
 const report = [];
 let failures = 0;
@@ -36,6 +38,42 @@ const ordinary = fromAscii(['###', '#@#', '###'], { elements: ['fire'] });
 check('обычный новый уровень не становится операцией',
   decode(encode(ordinary)).operation === false,
   String(decode(encode(ordinary)).operation));
+
+const idle = { moveX: 0, moveY: 0, aimAngle: 0, attack: false, charge: null };
+function step(world, frames = 1) {
+  for (let i = 0; i < frames; i += 1) update(world, 1 / 60, idle);
+}
+function place(body, cellX, cellY) {
+  body.x = cellX * TILE_SIZE + TILE_SIZE / 2;
+  body.y = cellY * TILE_SIZE + TILE_SIZE / 2;
+}
+
+{
+  const world = createWorld(encodedLevel);
+  check('операция создаёт цель с ядром', world.operation?.required === 'core');
+  check('операция создаёт мирного, заложника, ядро и свечу',
+    world.civilians.length === 1 && world.hostage?.kind === 'hostage'
+      && world.core?.kind === 'core'
+      && world.props.some((prop) => prop.kind === 'candle'));
+
+  place(world.player, 7, 1);
+  step(world);
+  check('выход до ядра не завершает операцию', world.state === 'play', world.state);
+
+  place(world.player, 4, 1);
+  step(world);
+  check('касание забирает ядро', world.operation.coreTaken && world.core.taken);
+
+  place(world.player, 7, 1);
+  step(world);
+  check('с ядром выход завершает операцию', world.state === 'clear', world.state);
+
+  const result = operationResult(world);
+  check('результат считает оставленного заложника и живого мирного',
+    result.hostage === 'left' && result.civiliansAlive === 1
+      && result.guardsDead === 0,
+    `${result.hostage}/${result.civiliansAlive}/${result.guardsDead}`);
+}
 
 for (const line of report) console.log(line);
 process.exit(failures ? 1 : 0);
