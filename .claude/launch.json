@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "technomagic",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "serve.py",
+        "4190"
+      ],
+      "port": 4190
+    }
+  ]
+}

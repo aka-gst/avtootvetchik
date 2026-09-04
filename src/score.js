@@ -17,6 +17,17 @@
 const KILL = 100;
 const EXECUTION = 150;      /* добить лежачего дороже: это отдельное решение */
 const CROSSFIRE = 50;       /* враг застрелил своего — заслуга косвенная */
+
+/*
+ * Вырубленный стоит меньше убитого, но не ноль — и цепочку не рвёт.
+ *
+ * Ноль здесь означал бы, что несмертельный путь мёртв: та же работа, те
+ * же формы, а на табло пусто, да ещё и тело просыпается. Никто не выберет
+ * дороже и бесполезнее, и правило, которого не выбирают, — это правило,
+ * которого нет. Шестьдесят против ста оставляют смерть привлекательной,
+ * не делая милосердие наказанием.
+ */
+const SLEEP = 60;
 const COMBO_WINDOW = 4;     /* столько секунд цепочка ждёт следующего убийства */
 const COMBO_CAP = 8;
 
@@ -39,6 +50,7 @@ export function createScore(level, attempts = 1) {
     comboLeft: 0,
     maxCombo: 0,
     kills: 0,
+    sleeps: 0,
     executions: 0,
     crossfire: 0,
     releases: 0,
@@ -46,11 +58,17 @@ export function createScore(level, attempts = 1) {
     attempts,
   };
 
+  /*
+   * Начисление возвращается наружу, а не только копится внутри. Причина
+   * не в удобстве: игрок должен узнать, что его способ засчитан, в тот
+   * момент, когда способ сработал, — а не через минуту в таблице. Считать
+   * же это дважды, здесь и на экране, значит однажды разойтись.
+   */
   function kill(event) {
     if (event.by !== 'player') {
       state.crossfire += 1;
       state.score += CROSSFIRE;
-      return;
+      return { gain: CROSSFIRE, reason: 'ЧУЖИМИ РУКАМИ' };
     }
 
     state.combo = Math.min(COMBO_CAP, state.combo + 1);
@@ -60,18 +78,52 @@ export function createScore(level, attempts = 1) {
 
     if (event.execution) state.executions += 1;
 
-    state.score += (event.execution ? EXECUTION : KILL) * state.combo;
+    const gain = (event.execution ? EXECUTION : KILL) * state.combo;
+    state.score += gain;
+
+    /* Причина называется той же, что и в итоговой таблице: два разных
+       слова за одно и то же читаются как два разных правила. */
+    const reason = event.execution ? 'ДОБИВАНИЕ'
+      : event.cause === 'chain' ? 'ПО ВОДЕ'
+      : event.cause === 'fire' ? 'ОГНЁМ'
+      : event.cause === 'fling' ? 'ТЕЛОМ'
+      : event.cause === 'slam' ? 'О СТЕНУ'
+      : 'ВЫРЕЗАН';
+
+    return { gain, reason, combo: state.combo };
+  }
+
+  function sleep(event) {
+    if (event.by !== 'player') return null;
+
+    state.combo = Math.min(COMBO_CAP, state.combo + 1);
+    state.comboLeft = COMBO_WINDOW;
+    state.maxCombo = Math.max(state.maxCombo, state.combo);
+    state.sleeps += 1;
+
+    const gain = SLEEP * state.combo;
+    state.score += gain;
+    return { gain, reason: 'ВЫРУБЛЕН', combo: state.combo };
   }
 
   function feed(events) {
+    const awards = [];
+
     for (const event of events) {
-      if (event.type === 'kill') kill(event);
-      else if (event.type === 'daemon') {
+      if (event.type === 'kill') {
+        const award = kill(event);
+        if (award) awards.push({ ...award, x: event.x, y: event.y });
+      } else if (event.type === 'sleep') {
+        const award = sleep(event);
+        if (award) awards.push({ ...award, x: event.x, y: event.y });
+      } else if (event.type === 'daemon') {
         /* Считаем не выстрелы, а выпуски: у игрока нет оружия, только формы. */
         state.releases += 1;
         state.forms.add(event.form);
       }
     }
+
+    return awards;
   }
 
   /*
@@ -115,7 +167,9 @@ export function createScore(level, attempts = 1) {
      * единого холостого — отдельная заслуга. Один выпуск может убить
      * нескольких, так что сравниваем счётчики, а не пары.
      */
-    if (state.releases > 0 && state.kills >= state.releases) add('НИ ОДНОГО ХОЛОСТОГО', 700);
+    /* Холостым считается выпуск, никого не задевший. Вырубленный задет,
+       поэтому идёт в тот же счёт, что и убитый. */
+    if (state.releases > 0 && state.kills + state.sleeps >= state.releases) add('НИ ОДНОГО ХОЛОСТОГО', 700);
     if (state.crossfire > 0) add('ЧУЖИМИ РУКАМИ ' + state.crossfire, 0);
     if (state.attempts === 1) add('С ПЕРВОГО РАЗА', 500);
 

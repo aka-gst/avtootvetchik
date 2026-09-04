@@ -21,7 +21,7 @@
 
 /* Правило узнаётся по событию. Ключ — что случилось в мире, значение —
    короткое имя, под которым это ляжет в статистику. */
-const BY_EVENT = {
+export const BY_EVENT = {
   barrel: 'bochka',        /* вскрыл бочку */
   hay: 'soloma',           /* поджёг солому */
   crystal: 'kristall',     /* разрядил кристалл */
@@ -30,11 +30,14 @@ const BY_EVENT = {
   fling: 'telo',           /* сбил одного другим */
   backfire: 'sam',         /* задел себя вспышкой */
   'shocked-self': 'sam',   /* и своей же лужей */
+  gust: 'veter',           /* толкнул ветром — сам по себе не убивает */
   knock: 'sbil',           /* сбил с ног */
+  slam: 'stena',           /* разогнал в стену */
+  power: 'pitanie',        /* переключил питание этажа */
 };
 
 export function createTrace() {
-  return { rules: new Set(), casts: 0 };
+  return { rules: new Set(), delivery: new Set(), casts: 0 };
 }
 
 export function traceEvent(trace, event) {
@@ -44,17 +47,28 @@ export function traceEvent(trace, event) {
   if (event.type === 'daemon') {
     trace.casts += 1;
 
-    /* Состав против одиночной стихии — это разные способы, и разница
-       между ними и есть половина игры. */
-    trace.rules.add(event.elements.length >= 2 ? 'sostav' : 'iskra');
-
-    /* Форма записывается своим именем: луч и вспышка решают комнату
-       по-разному, и складывать их в «выстрелил» нельзя. */
-    if (event.form) trace.rules.add(`forma-${event.form}`);
-
-    /* Именное заклинание — отдельное правило: его ещё надо найти. */
-    if (event.signature) trace.rules.add(`imya-${event.signature}`);
+    /*
+     * Форма и состав — это ЧЕМ доставлено, а не ЧТО случилось, и потому
+     * они лежат отдельно от правил.
+     *
+     * Первая версия складывала их вместе, и измерение немедленно
+     * соврало: случайный игрок за минуту успевает выпустить шесть разных
+     * форм, и каждый прогон получался «уникальным решением». Сорок
+     * прогонов дали девятнадцать различных следов при том, что в мире
+     * во всех сорока происходило одно и то же. Считались нажатия, а не
+     * решения — ровно то, от чего замысел и предостерегает.
+     */
+    trace.delivery.add(event.elements.length >= 2 ? 'sostav' : 'iskra');
+    if (event.form) trace.delivery.add(`forma-${event.form}`);
+    if (event.signature) trace.delivery.add(`imya-${event.signature}`);
   }
+
+  /*
+   * Взлом и замыкание — разные решения, и складывать их нельзя: одно
+   * тихое и обратимое, другое громкое и окончательное. Игрок, прошедший
+   * комнату тихо, прошёл её не так же, как тот, кто разнёс щиток.
+   */
+  if (event.type === 'panel') trace.rules.add(event.точно ? 'vzlom' : 'zamykanie');
 
   if (event.type === 'kill' && event.execution) trace.rules.add('dobil');
   if (event.type === 'engaged') trace.rules.add('shum');
@@ -67,4 +81,13 @@ export function traceEvent(trace, event) {
  */
 export function traceKey(trace) {
   return [...trace.rules].sort().join('+');
+}
+
+/*
+ * Чем доставлено. Отдельной строкой, потому что на вопрос «сколькими
+ * способами прошли комнату» это не отвечает: луч и плевок, разбившие одну
+ * и ту же бочку, — одно решение, сыгранное разными руками.
+ */
+export function traceDelivery(trace) {
+  return [...trace.delivery].sort().join('+');
 }

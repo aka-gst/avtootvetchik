@@ -42,6 +42,19 @@ Math.random = () => {
 };
 
 /*
+ * Сид один на весь файл, и это делает проверки зависимыми друг от друга:
+ * любая правка, меняющая число обращений к Math.random в раннем блоке,
+ * сдвигает поток и роняет блок, которого правка не касалась. Так и
+ * вышло — замедление времени уронило проверку про копну, находясь от неё
+ * за тысячу строк и ни разу в её мире не сработав.
+ *
+ * `засеять` возвращает блоку собственное начало потока. Ставить в начале
+ * каждого блока, где расклад важен: тогда красный означает поломку, а не
+ * то, что кто-то выше стал чаще бросать кости.
+ */
+function засеять(n) { seed = n >>> 0; }
+
+/*
  * Этажи берутся по имени, а не по номеру. Номера уже разъехались один раз,
  * когда обучалка встала первой, и половина прогона молча начала проверять
  * не тот этаж — падало при этом совсем в другом месте.
@@ -51,6 +64,7 @@ const HALL = CAMPAIGN.find((level) => level.title.startsWith('ПАВИЛЬОН')
 const WARDS = CAMPAIGN.find((level) => level.title.startsWith('ОРАНЖЕРЕЯ'));
 
 const DT = 1 / 60;
+const SLEEP_TIME_TEST = 11;   /* заведомо дольше сна, чтобы все успели встать */
 const idle = { moveX: 0, moveY: 0, aimAngle: null, attack: false, charge: null };
 const report = [];
 let failures = 0;
@@ -131,7 +145,11 @@ function cast(world, stack, angle) {
   cast(world, ['fire'], angle);
   run(world, 0.5);
 
-  check('одиночный демон убивает с дистанции', sees ? !enemy.alive : true,
+  /* Правило сменилось: голая стихия больше не убивает, а вырубает.
+     Проверяем то же самое — удар дошёл с дистанции, — но по новому
+     исходу. Смерть проверяется отдельно, там, где за неё заплачено. */
+  check('одиночный демон достаёт с дистанции и вырубает',
+    sees ? (enemy.alive && enemy.downed > 0) : true,
     `видимость=${sees} жив=${enemy.alive}`);
   check('очередь после выстрела пуста', player.stack.length === 0);
 
@@ -140,7 +158,12 @@ function cast(world, stack, angle) {
    * это единственный способ убрать одного и не собрать этаж. Большие
    * формы, наоборот, слышно везде, и это их честная цена.
    */
-  const woke = world.enemies.filter((e) => e.alive && e.state !== 'idle').length;
+  /* Лежачий не «поднят»: у него state === 'down', то есть по старому
+     счёту он попадал в разбуженных и врал в большую сторону. Считаем
+     тех, кто на ногах. */
+  const наногах = (w) => w.enemies.filter((e) => e.alive && !(e.downed > 0)
+    && e.state !== 'idle').length;
+  const woke = наногах(world);
   check('одиночный демон не поднимает весь этаж', woke <= 1, `подняты ${woke}`);
 
   const loud = createWorld(HALL);
@@ -148,9 +171,8 @@ function cast(world, stack, angle) {
   loud.player.y = world.player.y;
   cast(loud, ['fire', 'fire', 'fire'], angle);
   run(loud, 0.8);
-  check('луч слышно через стены',
-    loud.enemies.filter((e) => e.alive && e.state !== 'idle').length > woke,
-    `подняты ${loud.enemies.filter((e) => e.alive && e.state !== 'idle').length}`);
+  check('луч слышно через стены', наногах(loud) > woke,
+    `подняты ${наногах(loud)} против ${woke}`);
 }
 
 /* --- C. Пустая очередь: удар ничего не делает, но говорит об этом --- */
@@ -278,6 +300,20 @@ function cast(world, stack, angle) {
     let bestGap = Infinity;
     for (let i = 0; i < w.tiles.length; i += 1) {
       if (!weakTo(w.tiles[i])) continue;
+
+      /*
+       * Преграда обязана преграждать. Как только ломаемыми стали двери и
+       * скамьи, бот бросился жечь их по всему этажу и переставал доходить
+       * до врагов: дверь ломается, но через неё и так ходят, а значит
+       * ломать её незачем. Спрашиваем не «ломается ли», а «держит ли».
+       */
+      /*
+       * Преграда обязана преграждать — либо открывать. Щиток сам проход
+       * не держит, но силовые двери держатся на нём: когда дороги нет и
+       * ломать нечего, живой игрок идёт искать щиток, и бот обязан уметь
+       * то же, иначе этаж с силовой дверью для него непроходим.
+       */
+      if (!blocksMove(w.tiles[i]) && w.tiles[i] !== TILE.PANEL) continue;
       const x = ((i % w.w) + 0.5) * TILE_SIZE;
       const y = (((i / w.w) | 0) + 0.5) * TILE_SIZE;
       /*
@@ -411,6 +447,35 @@ function cast(world, stack, angle) {
      * замаха — это движение, а движение сбрасывало «стою на месте», и бот
      * вечно топтался между «застрял» и «отхожу», ни разу не выстрелив.
      */
+    /*
+     * Ломать имеет смысл, только когда дороги нет. Раньше бот брался за
+     * преграду по одному признаку «стою на месте», и пока ломаемыми были
+     * три вещи, это сходило с рук. Как только загорелось дерево и
+     * забилось стекло, ломаемого стало вдесятеро больше — и бот принялся
+     * жечь скамьи по всему складу, ни разу не дойдя до врага.
+     *
+     * Спрашиваем прямо: доходит ли поле пути от врага до нашей клетки.
+     * Отрицательное значение и значит «не доходит».
+     */
+    /* Цель — ближайший живой, а когда живых нет, выход: и туда дорога
+       тоже может оказаться заперта. */
+    let goal = enemy;
+    if (!goal) {
+      for (let i = 0; i < w.tiles.length && !goal; i += 1) {
+        if (w.tiles[i] !== TILE.EXIT) continue;
+        goal = { x: ((i % w.w) + 0.5) * TILE_SIZE, y: (((i / w.w) | 0) + 0.5) * TILE_SIZE };
+      }
+    }
+
+    if (goal) {
+      const field = buildFlowField(w, goal.x, goal.y);
+      if (field[tileIndex(w, player.x, player.y)] >= 0) {
+        breaking = null;
+        breakingFor = 0;
+        stillFor = 0;
+      }
+    }
+
     if (!breaking && stillFor > 1.5) {
       breaking = blocker(w);
       if (world.botTrace) world.botTrace.push(breaking ? `цель:${Math.round(breaking.x)},${Math.round(breaking.y)}` : `застрял:${Math.round(player.x)},${Math.round(player.y)}`);
@@ -661,7 +726,11 @@ function cast(world, stack, angle) {
     player.x = victim.x;
     player.y = victim.y + 60;
     const angle = -Math.PI / 2;
-    /* Бьём не той стихией, которой он светится, иначе он просто отобьёт. */
+    /*
+     * Бьём не той стихией, которой он светится, иначе он просто отобьёт.
+     * И бьём ДВУМЯ разными: одиночная стихия теперь вырубает, а не
+     * убивает, а этот кусок проверяет цену именно убийства.
+     */
     for (const element of [ELEMENT_ORDER.find((e) => e !== victim.resist)]) {
       step({ ...idle, aimAngle: angle, charge: element });
       while (player.chargeLeft > 0) step({ ...idle, aimAngle: angle });
@@ -671,12 +740,34 @@ function cast(world, stack, angle) {
     for (let i = 0; i < 12; i += 1) step();
   };
 
+  /*
+   * Точный одиночный плевок теперь вырубает, а не убивает, — а проверяем
+   * мы здесь цепочку, то есть множитель за подряд. Берём тот исход,
+   * который у точного удара и получается, и считаем множитель по нему.
+   * Составом бить нельзя: сгусток задевает соседей, и в счёт попадает не
+   * то, что мерили (было 260 вместо 100).
+   */
   const alive = world.enemies.filter((e) => e.alive);
   kill(alive[0]);
-  check('первое убийство стоит базовых очков', score.state.score === 100, String(score.state.score));
+  check('первый вырубленный стоит базовых очков', score.state.score === 60, String(score.state.score));
 
   kill(alive[1]);
-  check('второе подряд идёт с множителем ×2', score.state.score === 300, String(score.state.score));
+  check('второй подряд идёт с множителем ×2', score.state.score === 180, String(score.state.score));
+
+  /*
+   * И отдельно — что убийство дороже вырубания. Синтетическим событием,
+   * без сцены: цена не должна зависеть от того, как удалось поставить
+   * жертву. Если эти два числа сравняются, выбор между способами
+   * исчезнет, а вместе с ним и смысл несмертельного пути.
+   */
+  const весы = createScore(HALL, 1);
+  весы.feed([{ type: 'sleep', by: 'player', x: 0, y: 0 }]);
+  const заВырубание = весы.state.score;
+  const весы2 = createScore(HALL, 1);
+  весы2.feed([{ type: 'kill', by: 'player', cause: 'chain', x: 0, y: 0 }]);
+  check('убийство дороже вырубания, но вырубание не ноль',
+    весы2.state.score > заВырубание && заВырубание > 0,
+    `${весы2.state.score} против ${заВырубание}`);
 
   for (let i = 0; i < 4.5 / DT; i += 1) step();
   check('пауза обрывает цепочку', score.state.combo === 0);
@@ -851,7 +942,10 @@ function cast(world, stack, angle) {
   stand(other, target);
   cast(other, ['fire'], 0);
   run(other, 0.4);
-  check('чужая стихия убивает', !target.alive);
+  /* Чужая стихия его берёт — но одиночная теперь вырубает, а не убивает.
+     Проверяем, что стойкость не сработала, а не то, каким стал исход. */
+  check('чужая стихия его берёт', target.downed > 0 || !target.alive,
+    `жив=${target.alive} лежит=${target.downed > 0}`);
 
   /* В смешанной очереди хватает одного чужого цвета. */
   const mixed = createWorld(WARDS);
@@ -1058,10 +1152,16 @@ function cast(world, stack, angle) {
   }
 
   const dry = chainRun(false);
+  /* Сухой разряд — одиночная молния, значит первый ложится, а не гибнет.
+     Проверяемое здесь другое: до второго не дошло ничего. */
+  const тронут = (e) => !e.alive || e.downed > 0;
   check('без лужи разряд достаёт только того, в кого целились',
-    !dry.a.alive && dry.b.alive, `первый=${dry.a.alive} второй=${dry.b.alive}`);
+    тронут(dry.a) && !тронут(dry.b),
+    `первый=${тронут(dry.a)} второй=${тронут(dry.b)}`);
 
   const wet = chainRun(true);
+  /* А по луже — обоих, и именно насмерть: цепь по воде это `chain`,
+     за неё заплачено лужей, и она бьёт всерьёз. */
   check('по луже разряд достаёт и того, в кого не целились',
     !wet.a.alive && !wet.b.alive, `первый=${wet.a.alive} второй=${wet.b.alive}`);
 
@@ -1819,6 +1919,346 @@ function cast(world, stack, angle) {
 }
 
 
+/*
+ * Открытое место в стороне от клетки: на прямой, без преград, с той
+ * стороны, где оно есть. Проверки про щиток дважды ломались от того, что
+ * расстановку комнаты меняли, а они помнили «четыре клетки вправо» и
+ * ставили то игрока, то стража в стену. Читать карту дешевле, чем
+ * помнить её, и это ровно тот же урок, что с копной и со свидетелем.
+ */
+function простороту(world, at, шагов) {
+  const tx = at % world.w;
+  const ty = (at / world.w) | 0;
+
+  for (const dx of [1, -1]) {
+    let открыто = true;
+    for (let k = 1; k <= шагов && открыто; k += 1) {
+      const nx = tx + dx * k;
+      if (nx < 1 || nx >= world.w - 1) открыто = false;
+      else if (blocksMove(world.tiles[ty * world.w + nx])) открыто = false;
+    }
+    if (открыто) {
+      return {
+        x: (tx + dx * шагов + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+        угол: dx > 0 ? Math.PI : 0,
+      };
+    }
+  }
+
+  return null;
+}
+
+/* --- P4. Щиток шумит не там, где игрок --- */
+{
+  /*
+   * Первый способ пройти этаж, никого не убив, и первый шум в игре,
+   * который исходит не из-под ног игрока. Всё остальное, что гремит,
+   * гремит там, где ты стоишь: выстрел, взрыв, падающее тело. Таким
+   * шумом можно убить, но нельзя отвлечь.
+   *
+   * Проверяется не «щиток ломается», а то, ради чего он есть: стража
+   * идёт к щитку, а не к игроку. Проверка на разность расстояний, а не
+   * на факт тревоги — иначе она пройдёт и на шуме под ногами.
+   */
+  const world = createWorld(TUTOR);
+  world.elements = [...ELEMENT_ORDER];
+
+  let panel = -1;
+  for (let i = 0; i < world.tiles.length && panel < 0; i += 1) {
+    if (world.tiles[i] === TILE.PANEL) panel = i;
+  }
+  check('в парке есть щиток', panel >= 0, `клетка ${panel}`);
+
+  const px = ((panel % world.w) + 0.5) * TILE_SIZE;
+  const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
+
+  /*
+   * Стража ставится на открытую клетку примерно в пяти шагах от щитка —
+   * искомую, а не вычисленную сдвигом. Прежняя версия отмеряла «шесть
+   * клеток вправо и три вниз» и после перестановки комнаты сажала стража
+   * в стену: он не двигался, а проверка это честно показывала как
+   * «не пошёл к щитку».
+   */
+  const guard = world.enemies.find((enemy) => enemy.alive);
+  let пост = null;
+  for (let i = 0; i < world.tiles.length && !пост; i += 1) {
+    if (blocksMove(world.tiles[i])) continue;
+    const gx = ((i % world.w) + 0.5) * TILE_SIZE;
+    const gy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+    const шагов = Math.hypot(gx - px, gy - py) / TILE_SIZE;
+    if (шагов > 4.5 && шагов < 6) пост = { x: gx, y: gy };
+  }
+  check('для стражи есть открытый пост у щитка', Boolean(пост));
+
+  guard.x = пост.x;
+  guard.y = пост.y;
+  guard.state = 'idle';
+  guard.heard = null;
+
+  const место = простороту(world, panel, 4);
+  world.player.x = место.x;
+  world.player.y = место.y;
+
+  const доИгрока = () => Math.hypot(guard.x - world.player.x, guard.y - world.player.y);
+  const доЩитка = () => Math.hypot(guard.x - px, guard.y - py);
+  const былоДоЩитка = доЩитка();
+
+  cast(world, ['bolt'], место.угол);
+  run(world, 3);
+
+  check('щиток замкнуло', world.tiles[panel] !== TILE.PANEL);
+  check('стража пошла к щитку, а не к игроку',
+    доЩитка() < былоДоЩитка && доЩитка() < доИгрока(),
+    `до щитка ${Math.round(былоДоЩитка)} → ${Math.round(доЩитка())}, до игрока ${Math.round(доИгрока())}`);
+}
+
+
+/* --- P5. Стена — то же тело, только неподвижное --- */
+{
+  /*
+   * До этого лёд отнимал управление и больше ничего: съехал — и съехал.
+   * Связка, которой никто не задумывал: заморозить пол, толкнуть врага и
+   * разогнать его в стену, ни разу не коснувшись. Правило одно с телом в
+   * тело, иначе стена оказалась бы мягче человека.
+   *
+   * Проверяется и обратное: бегущий своим ходом в стену не страдает,
+   * иначе враги гибли бы об углы сами, а игрок — на каждом повороте.
+   */
+  function вСтену(скорость) {
+    const world = createWorld(TUTOR);
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    const mark = world.enemies[0];
+    mark.alive = true;
+    mark.resist = null;
+    mark.hp = 1;
+
+    /* Ставим вплотную к левой стене и толкаем в неё. */
+    mark.x = TILE_SIZE * 1.4;
+    mark.y = TILE_SIZE * 12.5;
+    mark.stagger = 1;
+    mark.shove = 1;
+    mark.vx = -скорость;
+    mark.vy = 0;
+    world.total = 1;
+    world.kills = 0;
+
+    run(world, 0.6);
+    return mark.alive;
+  }
+
+  check('разогнанный в стену не встаёт', !вСтену(400));
+  check('идущий в стену своим ходом цел', вСтену(60));
+}
+
+
+/* --- P6. Силовая дверь падает вместе с питанием --- */
+{
+  /*
+   * Первая дверь, которую не открывают силой. Ни огонь, ни удар, ни
+   * разряд по ней самой не работают — работает только то, что она
+   * питается: обесточил и прошёл.
+   *
+   * И это тот же щиток, только со вторым следствием: один удар уводит
+   * стражу туда и открывает дорогу здесь.
+   */
+  const world = createWorld(TUTOR);
+  world.elements = [...ELEMENT_ORDER];
+
+  const силовых = () => world.tiles.filter((tile) => tile === TILE.FORCE).length;
+  const открытых = () => world.tiles.filter((tile) => tile === TILE.FORCE_OFF).length;
+
+  check('в парке есть силовая дверь', силовых() > 0, `${силовых()} клеток`);
+  check('под напряжением она держит проход', blocksMove(TILE.FORCE));
+  check('обесточенная не держит', !blocksMove(TILE.FORCE_OFF));
+
+  let panel = -1;
+  for (let i = 0; i < world.tiles.length && panel < 0; i += 1) {
+    if (world.tiles[i] === TILE.PANEL) panel = i;
+  }
+
+  const px = ((panel % world.w) + 0.5) * TILE_SIZE;
+  const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
+  const было = силовых();
+
+  for (const enemy of world.enemies) enemy.alive = false;
+  const место = простороту(world, panel, 4);
+  world.player.x = место.x;
+  world.player.y = место.y;
+  cast(world, ['bolt'], место.угол);
+  run(world, 1);
+
+  check('щиток обесточил этаж', world.powered === false);
+  check('силовые двери открылись', открытых() === было && силовых() === 0,
+    `было ${было}, открыто ${открытых()}, осталось ${силовых()}`);
+}
+
+
+/* --- P7. Взлом против замыкания --- */
+{
+  /*
+   * Взлом здесь не мини-игра, а разница в том, чем бьёшь по тому же
+   * щитку. Отдельный экран с таймером был бы другой игрой, приклеенной
+   * к этой: он ни на что не умножается.
+   *
+   * Одиночная искра замыкает — громко и насовсем. Состав с разрядом
+   * делает то же тихо и не ломая: за состав заплачено очередью, и он
+   * даёт точность, а не силу.
+   *
+   * Проверяется то, ради чего развилка и заведена: разная цена. Шум и
+   * судьба щитка, а не факт переключения.
+   */
+  function поЩитку(стек) {
+    const world = createWorld(TUTOR);
+    world.elements = [...ELEMENT_ORDER];
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    let panel = -1;
+    for (let i = 0; i < world.tiles.length && panel < 0; i += 1) {
+      if (world.tiles[i] === TILE.PANEL) panel = i;
+    }
+
+    const px = ((panel % world.w) + 0.5) * TILE_SIZE;
+    const py = (((panel / world.w) | 0) + 0.5) * TILE_SIZE;
+
+    const место = простороту(world, panel, 4);
+    world.player.x = место.x;
+    world.player.y = место.y;
+
+    /*
+     * Меряется шум У ЩИТКА, а не громкость вообще. Состав и сам по себе
+     * громче искры — его выпуск слышно, — но это шум там, где стоит
+     * игрок. Разница между взломом и замыканием в другом: замыкание
+     * гремит НА ЩИТКЕ и уводит туда стражу, а взлом там не звучит вовсе.
+     */
+    let уЩитка = 0;
+    cast(world, стек, место.угол);
+    for (let f = 0; f < 90; f += 1) {
+      update(world, DT, idle);
+      for (const шум of world.noises) {
+        if (Math.hypot(шум.x - px, шум.y - py) < TILE_SIZE) {
+          уЩитка = Math.max(уЩитка, шум.radius);
+        }
+      }
+    }
+
+    return {
+      питание: world.powered,
+      щитокЦел: world.tiles[panel] === TILE.PANEL,
+      уЩитка,
+    };
+  }
+
+  const грубо = поЩитку(['bolt']);
+  /* Состав, который летит: два элемента дают конус, а он не достаёт на
+     четыре клетки — сравнивать надо на равной дистанции, иначе меряется
+     дальность, а не точность. */
+  const точно = поЩитку(['fire', 'bolt', 'fire']);
+
+  check('искра замыкает щиток', грубо.питание === false && !грубо.щитокЦел,
+    `питание ${грубо.питание}, щиток ${грубо.щитокЦел ? 'цел' : 'сгорел'}`);
+  check('состав взламывает и не ломает', точно.питание === false && точно.щитокЦел,
+    `питание ${точно.питание}, щиток ${точно.щитокЦел ? 'цел' : 'сгорел'}`);
+  check('замыкание гремит у щитка, взлом там молчит',
+    точно.уЩитка === 0 && грубо.уЩитка > 0,
+    `у щитка при взломе ${Math.round(точно.уЩитка)}, при замыкании ${Math.round(грубо.уЩитка)}`);
+}
+
+
+/* --- P8. Базовый ветер толкает, а не убивает --- */
+{
+  /*
+   * Одиночная стихия делает слабое действие плюс свойство; сила приходит
+   * от смешивания. Вода одна — «мокрый», ветер один — толчок. Отсюда сам
+   * собой рождается вопрос «а если смешать», а это и есть предвкушение,
+   * ради которого в игру играют.
+   *
+   * И толчок не подарок: летящее тело уже умеет разбиваться о стену.
+   * Ветер сам никого не убивает, но убивает то, куда он отправил, — это
+   * проверяется отдельно, потому что в нём весь смысл.
+   */
+  function ветромВ(мишень) {
+    const world = createWorld(TUTOR);
+    world.elements = [...ELEMENT_ORDER];
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    const mark = world.enemies[0];
+    mark.alive = true;
+    mark.resist = null;
+    mark.hp = 1;
+    mark.state = 'idle';
+    world.total = 1;
+    world.kills = 0;
+
+    /* Открытое место в середине этажа либо вплотную к стене. */
+    const y = TILE_SIZE * 12.5;
+    world.player.x = мишень === 'стена' ? TILE_SIZE * 4.5 : TILE_SIZE * 5.5;
+    world.player.y = y;
+    mark.x = мишень === 'стена' ? TILE_SIZE * 2.2 : TILE_SIZE * 9;
+    mark.y = y;
+
+    const угол = мишень === 'стена' ? Math.PI : 0;
+    cast(world, ['wind'], угол);
+    run(world, 1.2);
+
+    return { жив: mark.alive, сдвинут: Math.abs(mark.x - (мишень === 'стена' ? TILE_SIZE * 2.2 : TILE_SIZE * 9)) };
+  }
+
+  const воткрытую = ветромВ('простор');
+  check('ветер в чистом поле не убивает', воткрытую.жив);
+  check('но сдвигает заметно', воткрытую.сдвинут > TILE_SIZE,
+    `сдвиг ${Math.round(воткрытую.сдвинут)} пикселей`);
+
+  const встену = ветромВ('стена');
+  check('ветер в стену убивает — стеной, а не ветром', !встену.жив);
+}
+
+
+/* --- Q0. Мокрое дерево не горит --- */
+{
+  /*
+   * Единственное, что вода умеет делать с предметами, — тушить их
+   * заранее. Ради этого её и льют: намочил копну, и чужой огонь по ней не
+   * пойдёт. Клетка «лить × дерево» до этого была пустой, а вся строка
+   * «лить» не делала с предметами ничего.
+   */
+  function копнаПослеОгня(мочить) {
+    const world = createWorld(TUTOR);
+    world.elements = [...ELEMENT_ORDER];
+    for (const enemy of world.enemies) enemy.alive = false;
+
+    let hay = -1;
+    for (let i = 0; i < world.tiles.length && hay < 0; i += 1) {
+      if (world.tiles[i] === TILE.HAY) hay = i;
+    }
+
+    const hx = ((hay % world.w) + 0.5) * TILE_SIZE;
+    const hy = (((hay / world.w) | 0) + 0.5) * TILE_SIZE;
+    const было = world.tiles.filter((tile) => tile === TILE.HAY).length;
+
+    if (мочить) {
+      paint(world, tilesInCircle(world, hx, hy, TILE_SIZE * 2),
+        substanceOf(['water']), { x: hx, y: hy }, true);
+    }
+
+    world.player.x = hx - TILE_SIZE * 4;
+    world.player.y = hy;
+    cast(world, ['fire'], 0);
+    run(world, 2);
+
+    return { было, стало: world.tiles.filter((tile) => tile === TILE.HAY).length };
+  }
+
+  const сухая = копнаПослеОгня(false);
+  const мокрая = копнаПослеОгня(true);
+
+  check('сухая копна выгорает', сухая.стало === 0, `${сухая.было} → ${сухая.стало}`);
+  check('мокрая копна держится', мокрая.стало > сухая.стало,
+    `${мокрая.было} → ${мокрая.стало} против сухой ${сухая.стало}`);
+}
+
+
 /* --- Q. Солома --- */
 {
   const world = createWorld(TUTOR);
@@ -1862,6 +2302,8 @@ function cast(world, stack, angle) {
   }
   check('в парке есть копна', hay.length >= 4, `${hay.length} клеток из ${allHay.length}`);
 
+  засеять(20260830);
+
   /* Маг, стоящий у копны, — тот, ради кого её и поджигают. */
   const victim = world.enemies.find((e) => e.alive);
   for (const enemy of world.enemies) if (enemy !== victim) enemy.alive = false;
@@ -1893,8 +2335,23 @@ function cast(world, stack, angle) {
   const left = hay.filter((i) => world.tiles[i] === TILE.HAY).length;
   check('одна искра поджигает всю копну', left === 0, `осталось ${left}`);
 
-  run(world, FIRE_CATCH + BURN_TIME + 0.3);
+  /*
+   * Ждём ИСХОДА, а не отмеренных секунд. Замедление времени крадёт у
+   * мира до трети хода, и проверка, отмерявшая ровно `FIRE_CATCH +
+   * BURN_TIME + 0.3`, стала падать — не потому, что жертва перестала
+   * гореть, а потому, что мир за это реальное время не успевал столько
+   * прожить. Ловушка общая для всех проверок с фиксированным сроком:
+   * они меряют часы, а не событие.
+   */
+  for (let i = 0; i < (FIRE_CATCH + BURN_TIME + 3) / DT && victim.alive; i += 1) {
+    update(world, DT, idle);
+  }
   check('стоящий у копны сгорает', !victim.alive);
+
+  /* Он был вырублен прямым попаданием и лежал в огне. Если обморок
+     защищает от пожара, вырубать становится выгоднее, чем убивать, — а
+     это ровно та поблажка, которой быть не должно. */
+  check('вырубленный в огне догорает, а не отлёживается', !victim.alive && victim.downed > 0);
 
   /* Но не всё подряд: молния соломе безразлична. */
   const dry = createWorld(TUTOR);
@@ -1906,6 +2363,207 @@ function cast(world, stack, angle) {
   check('молния солому не берёт', dry.tiles[edge] === TILE.HAY);
 }
 
+
+/* --- Вырубание: несмертельная одиночная стихия --- */
+{
+  засеять(20260901);
+  const HALL2 = CAMPAIGN[0];
+
+  /* Просыпается сам, и просыпается настороже, а не как ни в чём не бывало. */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    for (const other of world.enemies) if (other !== enemy) other.alive = false;
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    check('одиночная стихия вырубает, а не убивает',
+      enemy.alive && enemy.downed > 0, `жив=${enemy.alive} лежит=${enemy.downed > 0}`);
+
+    run(world, 4);
+    check('через четыре секунды всё ещё лежит', enemy.downed > 0,
+      `осталось ${enemy.downed.toFixed(1)} с`);
+
+    run(world, 7);
+    check('но просыпается сам', enemy.alive && !(enemy.downed > 0));
+    check('и просыпается настороже, а не спящим', enemy.state !== 'idle',
+      `состояние ${enemy.state}`);
+  }
+
+  /* Лежачего добивают — иначе вырубание было бы бесплатной неуязвимостью. */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    check('лежачего добивает та же одиночная стихия', !enemy.alive);
+  }
+
+  /*
+   * Отсутствие состава — не одиночный состав. Чужая пуля стихий не несёт
+   * и обязана убивать: иначе враги перестают убивать друг друга, а с
+   * ними исчезает и «чужими руками».
+   */
+  {
+    const world = createWorld(HALL2);
+    const enemy = world.enemies.find((e) => e.alive);
+    killEnemy(world, enemy, 0, 'bullet', { by: 'enemy', weapon: 'pistol' });
+    check('удар без стихий убивает, а не вырубает', !enemy.alive);
+  }
+
+  /*
+   * Лежачий — улика. Стоящий рядом обязан его заметить и поднять этаж:
+   * без этого вырубание было бы строго выгоднее убийства, потому что
+   * ничего не стоило бы.
+   */
+  {
+    const world = createWorld(HALL2);
+    const жертва = world.enemies.find((victim) => victim.alive
+      && world.enemies.some((other) => other !== victim && other.alive
+        && Math.hypot(other.x - victim.x, other.y - victim.y) < 120
+        && hasSight(world, other.x, other.y, victim.x, victim.y)));
+    check('на этаже есть кого вырубить на глазах у соседа', Boolean(жертва));
+    world.engaged = false;
+    killEnemy(world, жертва, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    run(world, 0.5);
+    check('лежачего замечают, и этаж просыпается', world.engaged === true);
+  }
+
+  /*
+   * И главное: несмертельный проход обязан быть проходимым. Если выход
+   * ждёт трупов, вырубивший всех заперт навсегда — а снаружи это
+   * выглядит не строгостью, а поломкой.
+   */
+  {
+    const world = createWorld(HALL2);
+    for (const enemy of world.enemies) {
+      if (enemy.alive) killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    }
+    const лежат = world.enemies.filter((e) => e.alive && e.downed > 0).length;
+    check('вырублены все, не убит никто', лежат === world.total && world.kills === 0,
+      `лежат ${лежат} из ${world.total}, убито ${world.kills}`);
+    check('выход открыт для того, кто никого не убил', world.exitOpen === true);
+
+
+  }
+
+  /*
+   * И то же самое ВРАЗБИВКУ — потому что одновременное вырубание эту
+   * разницу не ловит вовсе. Кладём первого, ждём дольше сна, чтобы он
+   * встал, и кладём остальных: одновременно лежащими они не бывают
+   * никогда. По старому правилу выход не открылся бы ни разу.
+   *
+   * Это и есть настоящий случай: обход восьмерых стоит около двух секунд
+   * на каждого, то есть шестнадцати, а сон длится девять. Проверка,
+   * ставящая всех разом, проходила при любом правиле — украшение.
+   */
+  {
+    const world = createWorld(HALL2);
+    const все = world.enemies.filter((e) => e.alive);
+    killEnemy(world, все[0], 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    run(world, SLEEP_TIME_TEST);
+    check('первый успел встать', !(все[0].downed > 0) && все[0].alive,
+      `лежит=${все[0].downed > 0}`);
+
+    for (const enemy of все.slice(1)) {
+      killEnemy(world, enemy, 0, 'daemon', { by: 'player', elements: ['bolt'] });
+    }
+    const лежатСейчас = world.enemies.filter((e) => e.alive && e.downed > 0).length;
+    check('одновременно лежат не все', лежатСейчас < world.total,
+      `${лежатСейчас} из ${world.total}`);
+    check('выход всё равно открыт: считается положенный, а не лежащий',
+      world.exitOpen === true);
+  }
+}
+
+/* --- Замедление: по признаку, а не по списку --- */
+{
+  засеять(20260831);
+  const собрать = (world, кадров, дело) => {
+    const было = [];
+    if (дело) дело();
+    for (let i = 0; i < кадров; i += 1) {
+      update(world, DT, idle);
+      for (const e of world.events) было.push(e);
+    }
+    return было;
+  };
+
+  /*
+   * Срабатывает: бочка, цепь по воде и смерть — три разных правила в
+   * одном окне, и добила не искра игрока, а разряд по луже.
+   */
+  {
+    const world = createWorld(CAMPAIGN[0]);
+    let barrel = -1;
+    for (let i = 0; i < world.tiles.length && barrel < 0; i += 1) {
+      if (world.tiles[i] !== TILE.BARREL) continue;
+      const bxx = ((i % world.w) + 0.5) * TILE_SIZE;
+      const byy = (((i / world.w) | 0) + 0.5) * TILE_SIZE;
+      const below = world.enemies.filter((enemy) => enemy.alive
+        && Math.abs(enemy.x - bxx) <= TILE_SIZE * 1.2
+        && enemy.y - byy > 0 && enemy.y - byy <= TILE_SIZE * 1.6).length;
+      if (below >= 3) barrel = i;
+    }
+    const bx = ((barrel % world.w) + 0.5) * TILE_SIZE;
+    const by = (((barrel / world.w) | 0) + 0.5) * TILE_SIZE;
+    world.player.x = bx - TILE_SIZE * 4;
+    world.player.y = by;
+
+    const события = собрать(world, 180, () => cast(world, ['bolt'], 0));
+    const замедления = события.filter((e) => e.type === 'slow');
+    check('цепь по воде замедляет время', замедления.length >= 1,
+      `${замедления.length} раз, правила: ${замедления[0] ? замедления[0].rules.join('+') : '—'}`);
+    /* `every` по пустому списку истинно — без первого условия проверка
+       была бы зелёной ровно тогда, когда замедление не сработало. */
+    check('и замедляет по последствию, а не по прямому попаданию',
+      замедления.length > 0
+      && замедления.every((e) => ['chain', 'fire', 'fling', 'slam'].includes(e.cause)),
+      замедления.map((e) => e.cause).join(','));
+  }
+
+  /*
+   * Не срабатывает на прямом попадании — и это половина правила. Если
+   * замедлять всё подряд, оно перестаёт что-либо значить и становится
+   * паузой после каждого выстрела.
+   */
+  {
+    const world = createWorld(CAMPAIGN[0]);
+    const enemy = world.enemies.find((e) => e.alive);
+    for (const other of world.enemies) if (other !== enemy) other.alive = false;
+    world.player.x = enemy.x;
+    world.player.y = enemy.y + 60;
+    const события = собрать(world, 60, () => cast(world, ['fire'], -Math.PI / 2));
+    check('прямое попадание время не замедляет',
+      !события.some((e) => e.type === 'slow'));
+  }
+
+  /*
+   * И не срабатывает на одной обстановке: сломать три предмета подряд —
+   * не событие. Замедление про живых.
+   */
+  {
+    const world = createWorld(CAMPAIGN[0]);
+    for (const enemy of world.enemies) enemy.alive = false;
+    const события = собрать(world, 180, () => cast(world, ['fire'], 0));
+    check('ломать обстановку можно молча',
+      !события.some((e) => e.type === 'slow'));
+  }
+
+  /*
+   * Часы окна идут настоящим временем. Иначе замедление растягивает
+   * собственное окно и продлевает себя же — проверяется тем, что
+   * замедление кончается за столько кадров, сколько занимает по
+   * настоящим часам.
+   */
+  {
+    const world = createWorld(CAMPAIGN[0]);
+    world.slow = 0.55;
+    let кадров = 0;
+    while (world.slow > 0 && кадров < 600) { update(world, DT, idle); кадров += 1; }
+    const секунд = кадров * DT;
+    check('замедление длится столько, сколько заявлено',
+      Math.abs(секунд - 0.55) < 0.05, `${секунд.toFixed(2)} с`);
+  }
+}
 
 console.log(report.join('\n'));
 console.log(failures ? `\nПРОВАЛЕНО ПРОВЕРОК: ${failures}` : '\nвсе проверки прошли');

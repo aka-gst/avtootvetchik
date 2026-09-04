@@ -52,12 +52,25 @@ html, body {
  * игра живёт отдельным репозиторием и обязана открываться сама по себе —
  * из папки, с флешки, откуда угодно. Двадцать строк дешевле зависимости.
  */
+/*
+ * Область нажатия не меньше 44 точек по обеим сторонам — это не вкус, а
+ * порог, ниже которого палец промахивается. Было 54x19: девятнадцать
+ * точек это меньше трёх миллиметров, и попасть в такое на ходу нельзя.
+ *
+ * Размер задаётся самому элементу, а не невидимой подложкой: подложку не
+ * видно ни в замере, ни глазом, и «кнопка выглядит крошечной, но нажать
+ * можно» — это всё равно плохая кнопка.
+ */
 .game-home-menu {
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
   z-index: 1000;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
   padding: 10px 12px;
   border: 1px solid var(--acid);
   background: #0b1010f2;
@@ -79,7 +92,7 @@ html, body {
 }
 
 @media (max-height: 600px) and (orientation: landscape) {
-  .game-home-menu { padding: 8px 10px; }
+  .game-home-menu { padding: 8px 10px; }   /* min-height 44 держится сверху */
 }
 
 
@@ -555,7 +568,7 @@ body.is-shooting .tome {
     right: auto;
     left: max(12px, env(safe-area-inset-left));
     bottom: calc(max(12px, env(safe-area-inset-bottom)) + 94px);
-    padding: 4px 7px;
+    padding: 4px 10px;
     font: 700 8px var(--mono);
   }
 
@@ -637,7 +650,7 @@ body.is-shooting .tome {
     right: max(12px, env(safe-area-inset-right));
     left: auto;
     bottom: auto;
-    padding: 4px 7px;
+    padding: 4px 10px;
     font: 700 8px var(--mono);
     background: #050b0cd0;
   }

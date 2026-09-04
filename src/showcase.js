@@ -82,8 +82,15 @@ export function createShowcase(level, renderer, hooks = {}) {
   for (const enemy of world.enemies) enemy.alive = cast.includes(enemy);
 
   cast.forEach((enemy, i) => {
-    enemy.x = bx + (i - 1) * TILE_SIZE;
-    enemy.y = by + TILE_SIZE * 1.2;
+    /*
+     * Плотнее, чем кажется нужным. При шаге в клетку и полутора клетках
+     * от бочки крайний оказывался за краем лужи и оставался сухим: цепь
+     * забирала двоих из трёх, и правило в кадре читалось как «иногда
+     * работает». Лужа расходится на одну и три четверти клетки — все
+     * трое обязаны стоять внутри.
+     */
+    enemy.x = bx + (i - 1) * TILE_SIZE * 0.9;
+    enemy.y = by + TILE_SIZE * 0.9;
     enemy.vx = 0;
     enemy.vy = 0;
     enemy.state = 'idle';
@@ -93,7 +100,16 @@ export function createShowcase(level, renderer, hooks = {}) {
   });
 
   world.elements = ['fire', 'water', 'wind', 'earth', 'bolt'];
-  world.engaged = true;
+
+  /*
+   * Этаж спит, и это не поблажка сцене, а её правда: никто ещё не умер,
+   * а тревогу поднимает замеченная смерть. Поднятая тревога рассыпала
+   * постановку за секунду — трое бросались на игрока и уходили с того
+   * места, куда сейчас разольётся вода, и цепь забирала двоих вместо
+   * троих. «Сцена детерминирована» оказывалось неправдой ровно там, где
+   * это важнее всего.
+   */
+  world.engaged = false;
   world.total = 3;
   world.kills = 0;
 
@@ -103,7 +119,13 @@ export function createShowcase(level, renderer, hooks = {}) {
    * а показывать ему нечего.
    */
   world.player.x = bx - TILE_SIZE * 2.2;
-  world.player.y = by + TILE_SIZE * 1.2;
+  /*
+   * Ровно на линии бочки. Первая постановка ставила игрока в один ряд с
+   * тройкой — и выстрел уходил в них, минуя бочку: цепь не случалась
+   * вовсе, а по кадру это выглядело как обычное попадание. Сцена должна
+   * показывать правило, а не его отсутствие.
+   */
+  world.player.y = by;
   world.player.angle = 0;
 
   /* Крупный план: фигура около полусотни пикселей на месте показа.

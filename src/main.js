@@ -7,6 +7,7 @@
  */
 
 import { CAMPAIGN } from './levels.js';
+import { systemicLabel } from './systemic-room.js';
 import { decode, encode } from './level.js';
 import { createWorld, update } from './world.js';
 import { AIM_CONE, assistAim, closeThreat, hasTargetUnderAim, lockTarget, keepPicked, cycleTarget, targetNear } from './aim.js';
@@ -19,7 +20,7 @@ import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.
 import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
-import { createTrace, traceEvent, traceKey } from './trace.js';
+import { createTrace, traceEvent, traceKey, traceDelivery } from './trace.js';
 import { createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
 
@@ -49,6 +50,8 @@ const ui = {
   scoreTotal: $('scoreTotal'),
   scoreBest: $('scoreBest'),
   score: $('score'),
+  systemic: $('systemic'),
+  systemicActions: $('systemicActions'),
   combo: $('combo'),
   target: $('target'),
   targetTime: $('targetTime'),
@@ -117,6 +120,8 @@ const SFX_BY_EVENT = {
   pickup: 'pickup',
   dry: 'dry',
   glass: 'glass',
+  panel: 'chain',
+  slam: 'impact',
   spot: 'spot',
   cleared: 'exit',
   chain: 'chain',
@@ -457,6 +462,7 @@ function clearScreen() {
      */
     sled: traceKey(trace),
     pravil: trace.rules.size,
+    chem: traceDelivery(trace),
   });
   const record = writeBest(levelCode, result, world.time);
   const more = hasNextFloor();
@@ -669,17 +675,54 @@ const JABS = {
     'ГЕНИАЛЬНО. ТЕПЕРЬ ЕЩЁ РАЗ, НО В СТОРОНЕ',
     'ВОДА ПРОВОДИТ. ДАЖЕ ТЕБЯ',
   ],
+  sleep: [
+    'ДЫШИТ. ЗАПОМНИ, ГДЕ ЛЁГ',
+    'МИЛОСЕРДИЕ С ТАЙМЕРОМ',
+    'ЖИВОЙ. ЭТО БЫЛ ТВОЙ ВЫБОР',
+    'ОДНА СТИХИЯ — ОДИН ОБМОРОК',
+    'СПИТ. НЕ ВЕЧНО',
+  ],
+  wake: [
+    'ОТОСПАЛСЯ',
+    'ПОДНЯЛСЯ. И НЕ В ДУХЕ',
+    'ВСПОМНИЛ ТВОЁ ЛИЦО',
+    'ВОТ И ОН',
+  ],
   held: [
     'НЕ ВПЕЧАТЛИЛО',
     'ОН ТАКОЕ НА ЗАВТРАК ЕСТ',
     'ИСКРА ЕМУ НЕ СОПЕРНИК — НУЖНО ВЕЩЕСТВО',
     'ЩЕКОТНО. ПОПРОБУЙ СЕРЬЁЗНЕЕ',
   ],
+  gust: [
+    'ПОЛЕТЕЛ. КУДА — ТВОЁ ДЕЛО',
+    'ОДНА СТИХИЯ ТОЛЬКО ДВИГАЕТ',
+    'ВЕТЕР ГОТОВИТ, УБИВАЕТ ЧТО-ТО ДРУГОЕ',
+    'ТЕПЕРЬ ОН СНАРЯД',
+  ],
+  slam: [
+    'ПРИЛОЖИЛО',
+    'СТЕНА ВЫИГРАЛА',
+    'ЛЁД ДОВЁЗ',
+    'РАЗОГНАЛСЯ И ПРИЕХАЛ',
+  ],
   fling: [
     'КЕГЛЯ',
     'ОДНИМ ТЕЛОМ ДВОИХ',
     'ОН ПРИЛЕТЕЛ НЕ ОДИН',
     'БИЛЬЯРД',
+  ],
+  hack: [
+    'У ЩИТКА НИКТО НЕ УСЛЫШАЛ',
+    'СОСТАВ ДАЁТ ТОЧНОСТЬ, А НЕ СИЛУ',
+    'ЩИТОК ЖИВ — МОЖНО ВЕРНУТЬ ОБРАТНО',
+    'НИКОГО ТУДА НЕ ПОЗВАЛО',
+  ],
+  panel: [
+    'ПУСТЬ СХОДЯТ ПОСМОТРЯТ',
+    'ИСКРИТ ТАМ. ТЫ ЗДЕСЬ',
+    'ЛУЧШИЙ ВЫСТРЕЛ — В СТОРОНУ',
+    'ШУМ БЕЗ СВИДЕТЕЛЕЙ',
   ],
   backfire: [
     'ВСПЫШКА В ТЕСНОТЕ — ПРИВЕТ ОТ СЕБЯ',
@@ -910,6 +953,13 @@ function updateHud(force) {
 
   ui.score.textContent = score.state.score;
 
+  if (world.systemic) {
+    ui.systemic.hidden = false;
+    ui.systemicActions.textContent = world.systemic.actions;
+  } else {
+    ui.systemic.hidden = true;
+  }
+
   const combo = score.state.combo;
   if (combo > 1) {
     if (ui.combo.hidden || ui.combo.dataset.value !== String(combo)) {
@@ -965,10 +1015,33 @@ function drainEvents() {
     } else if (event.type === 'charge') {
       landed = event.size;
       updateHud(true);
+    } else if (event.type === 'gust') {
+      /* Ветер один никого не убивает — и сказать это надо ровно один раз,
+         иначе игрок решит, что промахнулся. */
+      setToast(jab('gust', 'ВЕТЕР НЕ УБИВАЕТ — ОН ОТПРАВЛЯЕТ'), 2);
+      vibrate(8);
+    } else if (event.type === 'slam') {
+      setToast(jab('slam', 'В СТЕНУ. СТЕНА НЕ МЯГЧЕ ЧЕЛОВЕКА'), 1.8);
+      vibrate([14, 22]);
     } else if (event.type === 'fling') {
       /* Новый глагол, и о нём надо сказать: врагами можно бросаться. */
       setToast(jab('fling', 'ТЕЛО ТОЖЕ СНАРЯД'), 1.8);
       vibrate([10, 20]);
+    } else if (event.type === 'sleep') {
+      /*
+       * Новый исход, которого игрок раньше не видел: он ударил, враг не
+       * умер и при этом не отбился. Без слов это читается как промах,
+       * а не как милосердие. Поэтому первая строка несёт факт, а не
+       * шутку: не убит, и он встанет.
+       */
+      setToast(jab('sleep', 'НЕ УБИТ — В ОТКЛЮЧКЕ. ЧЕРЕЗ ВРЕМЯ ВСТАНЕТ'), 2.4);
+      vibrate(10);
+    } else if (event.type === 'wake' && event.subdued) {
+      /* Сбитого с ног в ближнем бою не объявляем — он встаёт каждые две
+         секунды, и экран превратился бы в ленту. Объявляем только того,
+         кого игрок сознательно оставил в живых. */
+      setToast(jab('wake', 'ТОТ САМЫЙ. ПОДНЯЛСЯ'), 2);
+      vibrate([8, 14]);
     } else if (event.type === 'held') {
       /* Промаха не было — был неподходящий удар, и сказать это надо
          сразу, иначе игрок решит, что игра его обманула. */
@@ -993,10 +1066,28 @@ function drainEvents() {
          сделал что-то большее, чем обычный выстрел. */
       setToast(`ЦЕПЬ ×${event.size}`, 1.8);
       vibrate([15, 25, 15]);
+    } else if (event.type === 'consequence') {
+      setToast(`СВЯЗЬ ${event.actions} · ${systemicLabel(event.kind)}`, 1.8);
+      vibrate(12);
     } else if (event.type === 'barrel') {
       /* Про воду больше не пишем: она теперь растекается на глазах, и
          подпись успевала объявить её раньше, чем она появлялась. */
       setToast('БОЧКА ВСКРЫТА', 1.4);
+    } else if (event.type === 'power') {
+      setToast(event.on ? 'ПИТАНИЕ ЕСТЬ — СИЛОВЫЕ ЗАКРЫЛИСЬ'
+        : `ПИТАНИЯ НЕТ — СИЛОВЫХ ${event.doors} ОТКРЫЛОСЬ`, 2.4);
+    } else if (event.type === 'panel') {
+      /* Первый шум, который звучит не там, где игрок. Сказать об этом
+         надо один раз: дальше он сам увидит, куда пошла стража. */
+      if (event.точно) {
+        /* Взлом — не громкая победа, а её отсутствие: сказать надо ровно
+           то, чем он отличается, иначе игрок не поймёт, за что платил. */
+        setToast(jab('hack', 'ВЗЛОМАНО — ЩИТОК ЦЕЛ, МОЖНО ВЕРНУТЬ'), 2.4);
+        vibrate(10);
+      } else {
+        setToast(jab('panel', 'ЩИТОК ЗАМКНУЛО — ШУМ ТАМ, А НЕ ЗДЕСЬ'), 2.4);
+        vibrate([12, 18, 12]);
+      }
     } else if (event.type === 'crystal') {
       setToast('КРИСТАЛЛ ОТДАЛ РАЗРЯД', 1.6);
     } else if (event.type === 'hay') {
@@ -1047,7 +1138,7 @@ let previous = performance.now();
  * один раз и больше некому было её повторить.
  *
  * Теперь следующий кадр планируется всегда, а ошибка показывается игроку
- * и запоминается в window.avto.error. Сломанная игра должна об этом
+ * и запоминается в window.technomagic.error. Сломанная игра должна об этом
  * говорить, а не молчать.
  */
 function frame(now) {
@@ -1056,8 +1147,8 @@ function frame(now) {
   try {
     step(now);
   } catch (error) {
-    if (!window.avto.error) {
-      window.avto.error = error;
+    if (!window.technomagic.error) {
+      window.technomagic.error = error;
       setToast(`СБОЙ: ${String(error && error.message || error).slice(0, 60)}`, 6);
       console.error('кадр упал', error);
     }
@@ -1103,7 +1194,22 @@ function step(now) {
   if (scene === 'play' && !tomeVisible) {
     const intent = buildIntent(raw);
     update(world, dt, intent);
-    score.feed(world.events);
+    /*
+     * Плата за способ показывается сразу и на месте. До сих пор весь счёт
+     * игрок видел только в конце этажа — то есть узнавал, что его ход
+     * засчитан, через минуту после того, как перестал на него смотреть.
+     */
+    for (const award of score.feed(world.events)) {
+      if (!award.x && !award.y) continue;
+      world.marks.push({
+        x: award.x,
+        y: award.y - 14,
+        text: `+${award.gain} ${award.reason}`,
+        big: award.combo > 1,
+        life: 1.1,
+        max: 1.1,
+      });
+    }
     score.update(dt);
     drainEvents();
 
@@ -1325,7 +1431,19 @@ window.addEventListener('pointerdown', wake);
  * снаружи: дошло ли нажатие до мира и в каком состоянии игра. Ничего не
  * меняет — только отдаёт ссылки на живые объекты.
  */
-window.avto = {
+/*
+ * ВХОД СНАРУЖИ
+ * =========================================================
+ * Имя своё, а не общее. Раньше здесь стояло window.avto — наследство от
+ * прежнего названия игры, — и ровно такое же имя оказалось у соседнего
+ * проекта. Две разные игры, две разные сцены, одно имя: на разных
+ * страницах это не ломается само, но тот, кто снимает шесть игр по
+ * записанному рецепту, применит к одной порядок вызовов другой. Ошибка
+ * будет выглядеть как «сцена не работает», а искать её станут в сцене.
+ *
+ * Старое имя оставлено синонимом: на него могли уже сослаться.
+ */
+window.technomagic = {
   get world() { return world; },
   get scene() { return scene; },
   get level() { return level; },
@@ -1335,6 +1453,22 @@ window.avto = {
      не крутится, а спросить напрямую можно всегда. */
   get input() { return input; },
   get renderer() { return renderer; },
+
+  /*
+   * ЗВУК НАРУЖУ
+   * ---------------------------------------------------------
+   * Про звук спорят дольше всего именно потому, что его нельзя
+   * предъявить: один говорит «молчит», другой «играет», и оба правы в
+   * своём окне. Ручка превращает спор в команду — `technomagic.audio()`
+   * отдаёт живой узел, а `.sfx(имя)` роняет в него один звук, и дальше
+   * меряется выход, а не намерение.
+   *
+   * Заведена по просьбе соседней сессии, которая замером на бою нашла у
+   * нас неработающий немой флаг. Их довод простой: у ПЕРИМЕТРА такая
+   * ручка есть, и она превратила двухчасовой спор двух измерителей в
+   * одну строчку.
+   */
+  audio() { return audio; },
   get view() { return lastView; },
   get picked() { return picked; },
 
@@ -1345,7 +1479,7 @@ window.avto = {
    * другой — это разделение труда, а не лень: сцену умеет поставить
    * только тот, кто знает игру.
    *
-   *   const s = window.avto.showcase();     // сцена стоит, игра молчит
+   *   const s = window.technomagic.showcase({ width: 960, height: 540 });
    *   while (s.state().упавших < 2) s.step(1/60);
    *   s.render();                           // кадр в холсте
    *   s.stop();                             // вернуть игру
@@ -1355,6 +1489,24 @@ window.avto = {
    */
   showcase(options = {}) {
     const seed = options.seed || 20260830;
+
+    /*
+     * Размер холста ставит кадровый цикл — а на съёмке он молчит, и без
+     * этой строки сцена рисуется в холст по умолчанию, триста на сто
+     * пятьдесят. Кадр при этом выходит не пустой, а хуже: почти
+     * правильный, только мелкий, и заметить это можно лишь замерив.
+     * Поймано счётчиком прозрачных пикселей: их оказалось не ноль.
+     *
+     * Размер можно задать и прямо — снимающему обычно нужен постоянный
+     * кадр, не зависящий от того, каким окном его открыли. А в скрытой
+     * вкладке холст вообще не имеет размера, и спросить его не у кого.
+     */
+    if (options.width && options.height) {
+      renderer.resize(options.width, options.height, options.dpr || 1);
+    } else {
+      resize();
+    }
+
     const made = withSeed(seed, () => createShowcase(CAMPAIGN[0], renderer));
 
     document.body.classList.add('is-shooting');
@@ -1393,10 +1545,50 @@ window.avto = {
   },
 };
 
+
+/*
+ * Синоним под прежним именем — временный, до 6 сентября 2026 года.
+ * Держится ради ссылок, которые могли остаться снаружи.
+ *
+ * Срок стоит здесь не для порядка: одна вещь под двумя именами — ровно та
+ * болезнь, из-за которой это переименование и понадобилось. Синоним без
+ * срока живёт вечно, и через полгода никто не помнит, какое имя
+ * настоящее.
+ */
+window.avto = window.technomagic;
 const fromHash = levelFromHash();
 if (fromHash) { level = fromHash; custom = true; }
 
 loadArt();
+
+/*
+ * ВЫХОД С НАЧАТОЙ ПАРТИИ СПРАШИВАЕТ
+ * =========================================================
+ * Кнопка «НА САЙТ» висит поверх игрового поля, то есть под большим
+ * пальцем, и уводит со страницы одним касанием. Владелец так уже потерял
+ * партию в другой нашей игре — вышел мимоходом, и прогресс исчез молча.
+ *
+ * Спрашиваем только при идущей партии: на заставке, после смерти и на
+ * зачищенном этаже терять нечего, и лишний вопрос там — помеха.
+ *
+ * Оба исхода обязаны работать: «отмена» удерживает адрес (для этого
+ * `preventDefault` стоит ДО вопроса, а не после), «выйти» уводит. Проверка,
+ * знающая только один исход, зелёная на сломанном.
+ */
+function партияИдёт() {
+  return (scene === 'play' || scene === 'pause') && world && world.state === 'play';
+}
+
+const выход = document.querySelector('.game-home-menu');
+if (выход) {
+  выход.addEventListener('click', (event) => {
+    if (!партияИдёт()) return;
+    event.preventDefault();
+    if (window.confirm('Точно выйти? Партия и прогресс потеряются.')) {
+      window.location.href = выход.href;
+    }
+  });
+}
 
 resize();
 levelCode = encode(level);

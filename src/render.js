@@ -18,7 +18,7 @@
  * стекло или не вскрыли бочку, а тысяча клеток каждый кадр — чистая трата.
  */
 
-import { TILE, TILE_SIZE, weakTo } from './level.js';
+import { TILE, TILE_SIZE, weakTo, brokenBy } from './level.js';
 import { BODY } from './world.js';
 import { colourOf, CHARGE_STEP, spellOf } from './magic.js';
 import { GROUND, FIRE_CATCH, groundAt, conducts } from './field.js';
@@ -458,6 +458,77 @@ export function createRenderer(canvas) {
         g.lineTo(cx - 7, cy - 3);
         g.closePath();
         g.fill();
+        continue;
+      }
+
+      if (tile === TILE.FORCE) {
+        /*
+         * Силовая дверь светится и сквозь неё видно: она обещает то, чего
+         * не даёт, — вот проход, и вот ты в него не пройдёшь. Гаснет
+         * вместе с питанием, и тогда её здесь просто нет.
+         */
+        const hum = 0.55 + Math.sin(world.time * 6 + i) * 0.3;
+        g.save();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = `rgba(90,200,255,${0.12 + hum * 0.1})`;
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        g.strokeStyle = `rgba(150,230,255,${0.5 + hum * 0.4})`;
+        g.lineWidth = 2;
+        for (let k = 0; k < 3; k += 1) {
+          const oy = py + (k + 0.5) * (TILE_SIZE / 3);
+          g.beginPath();
+          g.moveTo(px + 2, oy);
+          g.lineTo(px + TILE_SIZE - 2, oy);
+          g.stroke();
+        }
+        g.restore();
+        continue;
+      }
+
+      if (tile === TILE.METAL) {
+        /* Металл глухой: ни огня, ни взгляда. Только вмятины. */
+        g.fillStyle = '#4a5462';
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        g.strokeStyle = '#69768a';
+        g.lineWidth = 1.4;
+        g.strokeRect(px + 2.5, py + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+        g.fillStyle = '#8d9aad';
+        g.fillRect(px + TILE_SIZE / 2 - 5, py + TILE_SIZE / 2 - 1.5, 10, 3);
+        continue;
+      }
+
+      if (tile === TILE.PANEL) {
+        /*
+         * Щиток. Коробка на стене с двумя лампами и рубильником — вещь
+         * техническая, а не магическая, и по виду её не спутаешь ни с
+         * бочкой, ни с кристаллом. Лампы мигают вразнобой: живое питание
+         * должно быть видно издалека, потому что бьют по нему издалека.
+         */
+        const blink = 0.5 + Math.sin(world.time * 5 + i) * 0.5;
+
+        g.fillStyle = '#2b3340';
+        g.fillRect(cx - 11, cy - 9, 22, 18);
+        g.strokeStyle = '#5d6b7e';
+        g.lineWidth = 1.4;
+        g.strokeRect(cx - 11, cy - 9, 22, 18);
+
+        g.fillStyle = `rgba(255,226,77,${0.45 + blink * 0.55})`;
+        g.beginPath();
+        g.arc(cx - 5, cy - 3, 2.4, 0, 6.29);
+        g.fill();
+
+        g.fillStyle = `rgba(110,240,180,${0.9 - blink * 0.5})`;
+        g.beginPath();
+        g.arc(cx + 5, cy - 3, 2.4, 0, 6.29);
+        g.fill();
+
+        /* Рубильник вниз — щиток под напряжением. */
+        g.strokeStyle = '#c9d6e2';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(cx - 4, cy + 4);
+        g.lineTo(cx + 4, cy + 6);
+        g.stroke();
         continue;
       }
 
@@ -1298,6 +1369,84 @@ export function createRenderer(canvas) {
     g.restore();
   }
 
+  /*
+   * Всплывающая плата. Рисуется в мире, а не в интерфейсе: смотреть в
+   * угол экрана игроку некогда, а ответ «твой способ засчитан» нужен ему
+   * ровно там, где способ сработал.
+   */
+/*
+ * ПОДХОДЯЩЕЕ ПОДСВЕЧИВАЕТСЯ
+ * =========================================================
+ * Набрал огонь — обвелась солома и бочка. Набрал молнию — кристалл.
+ * Это не подсказка «сделай так», а свойство мира: подсветка говорит «сюда
+ * подходит», а решает по-прежнему игрок. Разница принципиальная —
+ * подсказку, указывающую на предмет, сегодня убрали нарочно, и возвращать
+ * её нельзя.
+ *
+ * Подходит или нет, решает тот же brokenBy, который решает и само
+ * разрушение. Отдельный список «вот эти предметы» рано или поздно
+ * разошёлся бы с правилами, и игрок обнаружил бы подсвеченное, которое
+ * не ломается, — а это хуже, чем отсутствие подсветки: мир перестаёт
+ * быть надёжным, и предвкушение связки исчезает вместе с доверием.
+ *
+ * Обводка тонкая и без свечения намеренно. Светится в кадре одна вещь —
+ * круг опасности; добавить сюда второй ореол значит погасить первый.
+ */
+  function drawMatching(g, world, range) {
+    const player = world.player;
+    if (!player.alive || !player.stack || !player.stack.length) return;
+
+    const spell = spellOf(player.stack);
+    if (!spell) return;
+
+    const traits = spell.substance.traits;
+    const beat = 0.5 + Math.sin(world.time * 4) * 0.18;
+
+    g.save();
+    g.strokeStyle = spell.substance.colour;
+    g.lineWidth = 1.6;
+    g.setLineDash([5, 5]);
+    g.lineDashOffset = -world.time * 22;
+    g.globalAlpha = beat;
+
+    for (let ty = range.y0; ty <= range.y1; ty += 1) {
+      for (let tx = range.x0; tx <= range.x1; tx += 1) {
+        const tile = world.tiles[ty * world.w + tx];
+        if (!weakTo(tile) || !brokenBy(tile, traits)) continue;
+        g.strokeRect(tx * TILE_SIZE + 2.5, ty * TILE_SIZE + 2.5,
+          TILE_SIZE - 5, TILE_SIZE - 5);
+      }
+    }
+
+    g.setLineDash([]);
+    g.restore();
+  }
+
+  function drawMarks(g, world) {
+    if (!world.marks || !world.marks.length) return;
+
+    g.save();
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+
+    for (const mark of world.marks) {
+      const fade = Math.min(1, mark.life / (mark.max * 0.45));
+      g.globalAlpha = fade;
+      g.font = `800 ${mark.big ? 13 : 11}px ui-monospace, Menlo, monospace`;
+
+      /* Тёмная подложка буквой: подпись ложится и на светлую лужу, и на
+         тёмную траву, и читаться должна на обеих. */
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(6,8,14,.85)';
+      g.strokeText(mark.text, mark.x, mark.y);
+
+      g.fillStyle = mark.big ? '#ffe14d' : '#e8f2f6';
+      g.fillText(mark.text, mark.x, mark.y);
+    }
+
+    g.restore();
+  }
+
   function drawLock(g, world) {
     if (!world.locked) return;
     const { x, y } = world.locked;
@@ -1685,7 +1834,9 @@ const DARKNESS = false;
     drawCorpses(ctx, world);
     drawProps(ctx, world, theme, range);
     drawEnemies(ctx, world);
+    drawMatching(ctx, world, range);
     drawLock(ctx, world);
+    drawMarks(ctx, world);
     drawPlayer(ctx, world);
     drawBullets(ctx, world);
     drawBlasts(ctx, world);
