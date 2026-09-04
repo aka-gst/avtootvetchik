@@ -18,6 +18,7 @@
  *   тема          3    палитра и обстановка
  *   трек          4    какой музыке играть
  *   системный     1    с версии 4: считать последствия мира, а не выпуски
+ *   операция      1    с версии 5: ядро, заложник и особые условия выхода
  *   старт X       6    клетка, откуда входит игрок
  *   старт Y       6
  *   старт угол    3    шаг 45°
@@ -32,7 +33,7 @@
  * можно, менять номера существующих — нет, иначе чужие коды поедут.
  */
 
-export const FORMAT_VERSION = 4;
+export const FORMAT_VERSION = 5;
 
 /*
  * Порядок битов маски стихий заморожен навсегда — как номера тайлов.
@@ -185,6 +186,9 @@ export const ENTITY = {
   CARRIER_WIND: 9,
   CARRIER_EARTH: 10,
   CARRIER_BOLT: 11,
+  HOSTAGE: 12,
+  CORE: 13,
+  CANDLE: 14,
 };
 
 /* Экранный словарь для рисования уровней руками. */
@@ -215,6 +219,10 @@ const CHAR_ENTITY = {
   v: ENTITY.CARRIER_WIND,
   e: ENTITY.CARRIER_EARTH,
   l: ENTITY.CARRIER_BOLT,
+  c: ENTITY.CIVIL,
+  z: ENTITY.HOSTAGE,
+  k: ENTITY.CORE,
+  i: ENTITY.CANDLE,
 };
 
 export function blocksMove(tile) {
@@ -349,6 +357,7 @@ export function encode(level) {
   bits.write(level.theme || 0, 3);
   bits.write(level.track || 0, 4);
   bits.write(level.systemic ? 1 : 0, 1);
+  bits.write(level.operation ? 1 : 0, 1);
   bits.write(level.spawn.x, 6);
   bits.write(level.spawn.y, 6);
   bits.write(level.spawn.angle || 0, 3);
@@ -406,6 +415,7 @@ export function decode(code) {
   const theme = bits.read(3);
   const track = bits.read(4);
   const systemic = version >= 4 ? Boolean(bits.read(1)) : false;
+  const operation = version >= 5 ? Boolean(bits.read(1)) : false;
   const spawn = { x: bits.read(6), y: bits.read(6), angle: bits.read(3) };
 
   const tiles = new Uint8Array(w * h);
@@ -428,7 +438,7 @@ export function decode(code) {
     });
   }
 
-  return { w, h, theme, track, systemic, spawn, tiles, entities, elements };
+  return { w, h, theme, track, systemic, operation, spawn, tiles, entities, elements };
 }
 
 
@@ -480,6 +490,7 @@ export function fromAscii(rows, meta = {}) {
     theme: meta.theme || 0,
     track: meta.track || 0,
     systemic: Boolean(meta.systemic),
+    operation: Boolean(meta.operation),
     /* Этаж, ничего не сказавший про стихии, даёт все: молчание автора
        не должно означать запрет. Кампания говорит про каждый этаж. */
     elements: meta.elements || [...ELEMENT_BITS],

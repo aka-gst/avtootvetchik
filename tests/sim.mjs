@@ -1369,6 +1369,8 @@ function cast(world, stack, angle) {
   check('и получает те три стихии, при которых был записан',
     Array.isArray(old.elements) && old.elements.join() === 'fire,water,wind',
     String(old && old.elements));
+  check('старый код не получает правила операции', old.operation === false,
+    String(old && old.operation));
 
   /* Маска: свой порядок битов, заморожен наравне с номерами тайлов. */
   check('маска стихий ходит туда-обратно',
