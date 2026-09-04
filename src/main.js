@@ -17,13 +17,14 @@ import { createAudio } from './audio.js';
 import { createScore, readBest, writeBest } from './score.js';
 import { ELEMENTS, ELEMENT_ORDER, STACK_LIMIT, CHARGE_STEP, spellOf, colourOf } from './magic.js';
 import { parseHash, buildLink, compare, cleanNick, NICK_KEY } from './challenge.js';
-import { loadBook, noteSpell, bookPages, bookCount, elementMarks } from './book.js';
+import { loadBook, noteSpell, noteObservation, bookPages, bookCount, elementMarks } from './book.js';
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
 import { createTrace, traceEvent, traceKey, traceDelivery } from './trace.js';
 import { createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
 import { operationResult } from './operation.js';
+import { physicalHint } from './observations.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -68,6 +69,7 @@ const ui = {
   tomeCount: $('tomeCount'),
   tomeSubstances: $('tomeSubstances'),
   tomeSignatures: $('tomeSignatures'),
+  tomeObservations: $('tomeObservations'),
   tomeClose: $('tomeClose'),
   tomeOpen: $('tomeOpen'),
   found: $('found'),
@@ -78,6 +80,7 @@ const ui = {
   operationGoal: $('operationGoal'),
   operationOptional: $('operationOptional'),
   operationLesson: $('operationLesson'),
+  physicalObservation: $('physicalObservation'),
 };
 
 /*
@@ -826,7 +829,8 @@ function renderTome() {
   const count = bookCount(book);
 
   ui.tomeCount.textContent =
-    `${count.substances}/${count.substancesTotal} · ИМЕННЫХ ${count.signatures}/${count.signaturesTotal}`;
+    `${count.substances}/${count.substancesTotal} · ИМЕННЫХ ${count.signatures}/${count.signaturesTotal}`
+    + ` · МИР ${count.observations}/${count.observationsTotal}`;
 
   ui.tomeSubstances.innerHTML = pages.substances.map((entry) => {
     const marks = elementMarks(entry.elements)
@@ -877,6 +881,14 @@ function renderTome() {
       ? `<li data-known="0"><span class="tome-note">`
         + `ещё ${rest} — их вещества пока не открыты</span></li>`
       : '');
+
+  ui.tomeObservations.innerHTML = pages.observations.map((entry) => (
+    entry.known
+      ? `<li data-known="1"><b class="tome-sign">${entry.name}</b>`
+        + `<br><span class="tome-note">${entry.note}</span></li>`
+      : '<li data-known="0"><b class="tome-sign">???</b>'
+        + '<br><span class="tome-note">Наблюдай последствия действий.</span></li>'
+  )).join('');
 }
 
 function showTome() {
@@ -982,6 +994,10 @@ function updateHud(force) {
     ui.operationHud.hidden = true;
   }
 
+  const observation = physicalHint(world, picked);
+  ui.physicalObservation.textContent = observation;
+  ui.physicalObservation.hidden = !observation;
+
   if (challenge) {
     ui.target.hidden = false;
     ui.targetTime.textContent = `${challenge.nick} ${formatTime(challenge.time)}`;
@@ -1025,6 +1041,12 @@ function drainEvents() {
 
     const name = SFX_BY_EVENT[event.type];
     if (name) audio.sfx(name, event);
+
+    const observation = noteObservation(book, event);
+    if (observation) {
+      showFound('НАБЛЮДЕНИЕ МИРА', observation.name, observation.note, '#7ffcff');
+      audio.sfx('spot');
+    }
 
     if (event.type === 'daemon') {
       /* Очередь ушла в выстрел — метка «только что легла» больше ни к
@@ -1071,9 +1093,11 @@ function drainEvents() {
        * Новый исход, которого игрок раньше не видел: он ударил, враг не
        * умер и при этом не отбился. Без слов это читается как промах,
        * а не как милосердие. Поэтому первая строка несёт факт, а не
-       * шутку: не убит, и он встанет.
+       * шутку: не убит; поднимется ли он, сообщает само событие.
        */
-      setToast(jab('sleep', 'НЕ УБИТ — В ОТКЛЮЧКЕ. ЧЕРЕЗ ВРЕМЯ ВСТАНЕТ'), 2.4);
+      setToast(jab('sleep', event.permanent
+        ? 'НЕ УБИТ — БЕЗ СОЗНАНИЯ. НЕ ПОДНИМЕТСЯ'
+        : 'НЕ УБИТ — В ОТКЛЮЧКЕ. ЧЕРЕЗ ВРЕМЯ ВСТАНЕТ'), 2.4);
       vibrate(10);
     } else if (event.type === 'wake' && event.subdued) {
       /* Сбитого с ног в ближнем бою не объявляем — он встаёт каждые две
@@ -1567,6 +1591,8 @@ window.technomagic = {
      * вкладке холст вообще не имеет размера, и спросить его не у кого.
      */
     if (options.width && options.height) {
+      canvas.style.width = `${options.width}px`;
+      canvas.style.height = `${options.height}px`;
       renderer.resize(options.width, options.height, options.dpr || 1);
     } else {
       resize();
@@ -1588,6 +1614,9 @@ window.technomagic = {
       stop() {
         shooting = null;
         document.body.classList.remove('is-shooting');
+        canvas.style.width = '';
+        canvas.style.height = '';
+        resize();
         renderer.invalidate();
       },
     };

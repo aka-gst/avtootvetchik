@@ -16,6 +16,7 @@
  */
 
 import { ELEMENT_ORDER, ELEMENTS, FORMS, SIGNATURES, allSubstances, substanceOf } from './magic.js';
+import { WORLD_OBSERVATIONS } from './observations.js';
 
 const KEY = 'technomagic.book.v1';
 
@@ -25,9 +26,10 @@ export function loadBook() {
     return {
       substances: new Set(Array.isArray(raw.substances) ? raw.substances : []),
       signatures: new Set(Array.isArray(raw.signatures) ? raw.signatures : []),
+      observations: new Set(Array.isArray(raw.observations) ? raw.observations : []),
     };
   } catch (error) {
-    return { substances: new Set(), signatures: new Set() };
+    return { substances: new Set(), signatures: new Set(), observations: new Set() };
   }
 }
 
@@ -36,10 +38,20 @@ export function saveBook(book) {
     localStorage.setItem(KEY, JSON.stringify({
       substances: [...book.substances],
       signatures: [...book.signatures],
+      observations: [...book.observations],
     }));
   } catch (error) {
     /* приватный режим: книга не переживёт вкладку, но игре это не мешает */
   }
+}
+
+export function noteObservation(book, event) {
+  if (event?.type !== 'world-observation') return null;
+  const observation = WORLD_OBSERVATIONS.find((entry) => entry.id === event.id);
+  if (!observation || book.observations.has(observation.id)) return null;
+  book.observations.add(observation.id);
+  saveBook(book);
+  return observation;
 }
 
 /*
@@ -70,6 +82,8 @@ export function bookCount(book) {
     substancesTotal: allSubstances().length,
     signatures: book.signatures.size,
     signaturesTotal: Object.keys(SIGNATURES).length,
+    observations: book.observations.size,
+    observationsTotal: WORLD_OBSERVATIONS.length,
   };
 }
 
@@ -113,7 +127,12 @@ export function bookPages(book) {
     };
   });
 
-  return { substances, signatures };
+  const observations = WORLD_OBSERVATIONS.map((entry) => ({
+    ...entry,
+    known: book.observations.has(entry.id),
+  }));
+
+  return { substances, signatures, observations };
 }
 
 /* Подпись стихий составом — одними значками, чтобы влезало в клетку. */

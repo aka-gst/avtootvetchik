@@ -142,7 +142,9 @@ function sameTarget(a, b) {
    целью в тот же кадр, и прицел уходит дальше сам. */
 function alive(world, target) {
   if (!target) return false;
-  if (target.worldProp) return target.worldProp.kind === 'candle' && !target.worldProp.lit;
+  /* Новую зажжённую свечу больше не предлагаем в списке, но уже
+     выбранную сохраняем: игрок должен успеть прочитать смену состояния. */
+  if (target.worldProp) return target.worldProp.kind === 'candle';
   if (target.prop !== undefined) return weakTo(world.tiles[target.prop]) !== null;
   return Boolean(target.alive);
 }

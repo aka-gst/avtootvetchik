@@ -417,12 +417,38 @@ body.is-shooting .tome {
 #operationOptional { color: #ffd27f; }
 #operationLesson { color: #ffffffaa; }
 
+.physical-observation {
+  position: fixed;
+  left: 50%;
+  top: max(152px, calc(env(safe-area-inset-top) + 146px));
+  z-index: 8;
+  width: min(520px, calc(100vw - 180px));
+  padding: 7px 11px;
+  border-left: 2px solid #7ffcff;
+  background: #050b0cdd;
+  color: #d9ffff;
+  font: 700 10px/1.35 var(--mono);
+  letter-spacing: .08em;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.physical-observation[hidden] { display: none; }
+
 @media (max-width: 700px) {
   .operation-hud {
     top: max(68px, calc(env(safe-area-inset-top) + 62px));
     width: calc(100vw - 118px);
     font-size: 8px;
     letter-spacing: .06em;
+  }
+
+  .physical-observation {
+    top: max(137px, calc(env(safe-area-inset-top) + 131px));
+    width: calc(100vw - 132px);
+    font-size: 8px;
+    letter-spacing: .04em;
   }
 }
 
@@ -528,6 +554,15 @@ body.is-shooting .tome {
 
 @media (pointer: coarse) and (orientation: portrait),
        (max-width: 700px) and (orientation: portrait) {
+  /* Нижние игровые кнопки остаются поверх книги. Запас не даёт им закрыть
+     последние наблюдения: карточку можно прокрутить так, чтобы текст целиком
+     оказался выше управления. */
+  .tome-card::after {
+    content: "";
+    display: block;
+    height: calc(112px + env(safe-area-inset-bottom));
+  }
+
   #screen {
     inset: 0 0 auto 0;
     height: 74%;

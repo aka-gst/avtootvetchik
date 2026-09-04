@@ -18,7 +18,8 @@ globalThis.localStorage = {
   removeItem: (key) => store.delete(key),
 };
 
-const { loadBook, noteSpell, bookPages, bookCount } = await import('../src/book.js');
+const bookModule = await import('../src/book.js');
+const { loadBook, noteSpell, bookPages, bookCount } = bookModule;
 const { spellOf, SIGNATURES } = await import('../src/magic.js');
 
 const report = [];
@@ -62,6 +63,31 @@ function eventOf(stack) {
   check('у каждой сигнатуры своё имя',
     new Set(Object.values(SIGNATURES).map((sign) => sign.name)).size
       === Object.keys(SIGNATURES).length);
+}
+
+/* --- E. Наблюдение мира открывается последствием, а не попыткой --- */
+{
+  store.clear();
+  const noteObservation = bookModule.noteObservation;
+  check('книга умеет записать наблюдение мира', typeof noteObservation === 'function');
+
+  if (typeof noteObservation === 'function') {
+    const book = loadBook();
+    const empty = noteObservation(book, {});
+    const wrong = noteObservation(book, { type: 'daemon', observation: 'noise-fire' });
+    const first = noteObservation(book, { type: 'world-observation', id: 'noise-fire' });
+    const repeat = noteObservation(book, { type: 'world-observation', id: 'noise-fire' });
+    const reopened = loadBook();
+    const pages = bookPages(reopened);
+    const count = bookCount(reopened);
+
+    check('пустое и неверное событие ничего не открывают', !empty && !wrong);
+    check('реальное последствие открывает закон ровно один раз',
+      Boolean(first) && !repeat && count.observations === 1);
+    check('наблюдение переживает перезаход и видно отдельной страницей',
+      reopened.observations.has('noise-fire')
+        && pages.observations.some((entry) => entry.id === 'noise-fire' && entry.known));
+  }
 }
 
 /* --- B. Находка объявляется один раз --- */

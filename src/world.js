@@ -496,11 +496,15 @@ export function emitNoise(world, x, y, radius, source) {
      * Отсюда и берётся выгода бить издалека: грохот слышали все, а куда
      * бежать, никто толком не знает, и обыск уходит мимо.
      */
-    const blur = (gap / radius) * radius * 0.5;
+    /* Треск самой ловушки ведёт в её центр точно: если страж остановится
+       у края, обучающий маршрут случайно исчезнет. Остальные разовые
+       звуки сохраняют обычную неопределённость направления. */
+    const blur = source === 'hay' ? 0 : (gap / radius) * radius * 0.5;
     const away = Math.random() * Math.PI * 2;
     enemy.heard = {
       x: x + Math.cos(away) * blur * Math.random(),
       y: y + Math.sin(away) * blur * Math.random(),
+      origin: { x, y, source },
     };
     enemy.state = 'alert';
     enemy.think = 0;
@@ -1091,6 +1095,7 @@ export function killEnemy(world, enemy, angle, cause, source = {}) {
       x: enemy.x,
       y: enemy.y,
       by: source.by || 'player',
+      permanent: Boolean(enemy.unconscious),
     });
     return;
   }
@@ -2063,6 +2068,13 @@ function scorch(world, body, dt) {
       && !resists(body, ['fire'])) {
     body.burning = BURN_TIME;
     world.events.push({ type: 'ignite', player: body === world.player });
+    const origin = body.heard?.origin;
+    if (world.enemies.includes(body) && origin
+        && Math.hypot(body.x - origin.x, body.y - origin.y) <= TILE_SIZE * 2
+        && !body.noiseTrapObserved) {
+      body.noiseTrapObserved = true;
+      world.events.push({ type: 'world-observation', id: 'noise-fire' });
+    }
   }
 
   if (body.burning > 0) {

@@ -6,11 +6,11 @@
 
 import { decode, encode, ENTITY, fromAscii, TILE } from '../src/level.js';
 import {
-  createWorld, discharge, killEnemy, knockDown, resolveBodyImpact, setPower, TILE_SIZE, update,
+  createWorld, discharge, emitNoise, killEnemy, knockDown, resolveBodyImpact, setPower, TILE_SIZE, update,
 } from '../src/world.js';
 import { operationResult } from '../src/operation.js';
 import { EVGENY_SANDBOX } from '../src/evgeny-sandbox.js';
-import { GROUND, JOLT } from '../src/field.js';
+import { FLARE, GROUND, JOLT, paint, tilesInCircle } from '../src/field.js';
 import { lockCandidates } from '../src/aim.js';
 
 const report = [];
@@ -53,6 +53,14 @@ function step(world, frames = 1) {
   check('обычный удар 180 оглушает, а не убивает',
     ordinaryGuard.alive && ordinaryGuard.downed > 0);
 
+  const subdued = createWorld(level);
+  killEnemy(subdued, subdued.enemies[0], 0, 'daemon', {
+    by: 'player', elements: ['fire'], traits: { burn: 1 }, form: 'shot',
+  });
+  const sleepEvent = subdued.events.find((event) => event.type === 'sleep');
+  check('событие оглушения в операции прямо помечает постоянный исход',
+    sleepEvent?.permanent === true, JSON.stringify(sleepEvent));
+
   const wall = createWorld(fromAscii(['########', '#@..t#X#', '########'], { operation: true }));
   const wallGuard = wall.enemies[0];
   wallGuard.x = 150;
@@ -89,6 +97,97 @@ function step(world, frames = 1) {
     iceGuard.alive && iceGuard.downed > 0,
     `${iceGuard.x}/${iceGuard.downed}`);
 
+}
+
+/* Шум у стартового стога — настоящая приманка, а не подписанный замысел. */
+{
+  function lureScene({ fire, noise }) {
+    const world = createWorld(EVGENY_SANDBOX);
+    let trap = -1;
+    for (let i = 0; i < world.tiles.length; i += 1) {
+      if (world.tiles[i] === TILE.HAY && Math.floor(i / world.w) === 19) trap = i;
+    }
+    const x = (trap % world.w + 0.5) * TILE_SIZE;
+    const y = (Math.floor(trap / world.w) + 0.5) * TILE_SIZE;
+    const guard = world.enemies.reduce((best, enemy) => (
+      Math.hypot(enemy.x - x, enemy.y - y) < Math.hypot(best.x - x, best.y - y)
+        ? enemy : best
+    ), world.enemies[0]);
+    for (const enemy of world.enemies) if (enemy !== guard) enemy.alive = false;
+    place(world.player, 20, 12);
+    world.tiles[trap] = TILE.FLOOR;
+    if (fire) {
+      paint(world, tilesInCircle(world, x, y, TILE_SIZE * 1.3), FLARE, { x, y }, true);
+      for (let i = 0; i < world.ground.length; i += 1) {
+        if (world.ground[i] === GROUND.FIRE) world.groundAge[i] = 1;
+      }
+    }
+    const before = Math.hypot(guard.x - x, guard.y - y);
+    if (noise) emitNoise(world, x, y, 300, 'hay');
+    let entered = false;
+    let observed = false;
+    for (let frame = 0; frame < 360; frame += 1) {
+      step(world);
+      const at = Math.floor(guard.y / TILE_SIZE) * world.w + Math.floor(guard.x / TILE_SIZE);
+      if (world.ground[at] === GROUND.FIRE) entered = true;
+      observed ||= world.events.some((event) => event.type === 'world-observation'
+        && event.id === 'noise-fire');
+    }
+    return {
+      world, guard, entered, before,
+      after: Math.hypot(guard.x - x, guard.y - y),
+      observed,
+    };
+  }
+
+  const noiseOnly = lureScene({ fire: false, noise: true });
+  check('шум без ловушки подводит охранника, но не поражает',
+    noiseOnly.after < noiseOnly.before && noiseOnly.guard.alive
+      && !noiseOnly.guard.burning && !noiseOnly.observed,
+    `${Math.round(noiseOnly.before)}→${Math.round(noiseOnly.after)}`);
+
+  const trapOnly = lureScene({ fire: true, noise: false });
+  check('ловушка без шума не затягивает охранника',
+    !trapOnly.entered && trapOnly.guard.alive && !trapOnly.observed);
+
+  const combined = lureScene({ fire: true, noise: true });
+  check('шум затягивает охранника в пожар и открывает наблюдение',
+    combined.entered && (!combined.guard.alive || combined.guard.burning > 0)
+      && combined.world.player.alive && combined.observed,
+    `${combined.entered}/${combined.guard.alive}/${combined.guard.burning}/${combined.observed}`);
+
+  const actual = createWorld(EVGENY_SANDBOX);
+  let actualHay = -1;
+  for (let i = 0; i < actual.tiles.length; i += 1) {
+    if (actual.tiles[i] === TILE.HAY && Math.floor(i / actual.w) === 19) actualHay = i;
+  }
+  const actualX = (actualHay % actual.w + 0.5) * TILE_SIZE;
+  const actualY = (Math.floor(actualHay / actual.w) + 0.5) * TILE_SIZE;
+  const actualGuard = actual.enemies.reduce((best, enemy) => (
+    Math.hypot(enemy.x - actualX, enemy.y - actualY)
+      < Math.hypot(best.x - actualX, best.y - actualY) ? enemy : best
+  ), actual.enemies[0]);
+  for (const enemy of actual.enemies) if (enemy !== actualGuard) enemy.alive = false;
+  place(actual.player, 4, 20);
+  const actualAngle = Math.atan2(actualY - actual.player.y, actualX - actual.player.x);
+  update(actual, 1 / 60, { ...idle, aimAngle: actualAngle, charge: 'fire' });
+  while (actual.player.chargeLeft > 0) {
+    update(actual, 1 / 60, { ...idle, aimAngle: actualAngle });
+  }
+  update(actual, 1 / 60, { ...idle, aimAngle: actualAngle, attack: true });
+  let actualEntered = false;
+  let actualObserved = false;
+  for (let frame = 0; frame < 360; frame += 1) {
+    update(actual, 1 / 60, frame < 100 ? { ...idle, moveX: -1, aimAngle: Math.PI } : idle);
+    const at = Math.floor(actualGuard.y / TILE_SIZE) * actual.w
+      + Math.floor(actualGuard.x / TILE_SIZE);
+    actualEntered ||= actual.ground[at] === GROUND.FIRE;
+    actualObserved ||= actual.events.some((event) => event.type === 'world-observation');
+  }
+  check('реальный точный выстрел в стартовый стог создаёт маршрут-приманку',
+    actual.tiles[actualHay] === TILE.FLOOR && actualEntered && !actualGuard.alive
+      && actual.player.alive && actualObserved,
+    `${actualEntered}/${actualGuard.alive}/${actual.player.alive}/${actualObserved}`);
 }
 
 const encodedLevel = fromAscii([

@@ -115,8 +115,6 @@ export function createRenderer(canvas) {
     viewH = cssH;
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
-    canvas.style.width = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
   }
 
   /*

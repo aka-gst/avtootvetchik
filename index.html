@@ -15,7 +15,7 @@
   <title>ТЕХНОМАГИЯ</title>
 
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 
   <!--
     Счётчик посещений, тот же, что на всех страницах сайта. Путь обязан
@@ -77,6 +77,8 @@
   <span id="operationOptional">ЗАЛОЖНИК: НЕОБЯЗАТЕЛЬНО</span>
   <span id="operationLesson">ЗАЖГИ СВЕЧУ. ТОЧНОЕ ПОПАДАНИЕ НЕ ЗАДЕНЕТ ДЕРЕВО</span>
 </div>
+
+<div id="physicalObservation" class="physical-observation" hidden></div>
 
 <button type="button" id="mute" class="mute" data-off="0">ЗВУК ВКЛ</button>
 <button type="button" id="tomeOpen" class="mute mute-second">КНИГА · B</button>
@@ -182,13 +184,16 @@
     <h3 class="tome-title">ИМЕННЫЕ</h3>
     <ul id="tomeSignatures" class="tome-list"></ul>
 
+    <h3 class="tome-title">НАБЛЮДЕНИЯ МИРА</h3>
+    <ul id="tomeObservations" class="tome-list"></ul>
+
   </div>
 </section>
 
 
 <a class="game-home-menu" href="https://aka-gst.ru/#games">НА САЙТ</a>
 
-<script type="module" src="src/main.js?v=2"></script>
+<script type="module" src="src/main.js?v=3"></script>
 
 </body>
 </html>
