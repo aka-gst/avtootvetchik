@@ -59,7 +59,8 @@ function засеять(n) { seed = n >>> 0; }
  * когда обучалка встала первой, и половина прогона молча начала проверять
  * не тот этаж — падало при этом совсем в другом месте.
  */
-const TUTOR = CAMPAIGN[0];
+const TUTOR = CAMPAIGN.find((level) => level.title.startsWith('ВХОД В ПАРК'));
+const LEGACY_CAMPAIGN = CAMPAIGN.filter((level) => !level.operation);
 const HALL = CAMPAIGN.find((level) => level.title.startsWith('ПАВИЛЬОН'));
 const WARDS = CAMPAIGN.find((level) => level.title.startsWith('ОРАНЖЕРЕЯ'));
 
@@ -655,7 +656,7 @@ function cast(world, stack, angle) {
    * нельзя пройти, — это не «сложно», это сломано, и увидеть такое на
    * глаз можно только сыграв все четыре подряд.
    */
-  for (const floor of CAMPAIGN) {
+  for (const floor of LEGACY_CAMPAIGN) {
     const world = play(floor);
 
     /*
@@ -1300,12 +1301,12 @@ function cast(world, stack, angle) {
 {
   check('обучалка даёт две стихии, последний этаж — все пять',
     TUTOR.elements.length === 2
-    && CAMPAIGN[CAMPAIGN.length - 1].elements.length === ELEMENT_ORDER.length,
-    CAMPAIGN.map((level) => level.elements.length).join('→'));
+    && LEGACY_CAMPAIGN[LEGACY_CAMPAIGN.length - 1].elements.length === ELEMENT_ORDER.length,
+    LEGACY_CAMPAIGN.map((level) => level.elements.length).join('→'));
 
   check('каждый следующий этаж не отнимает прежнего',
-    CAMPAIGN.every((level, i) =>
-      i === 0 || CAMPAIGN[i - 1].elements.every((element) => level.elements.includes(element))));
+    LEGACY_CAMPAIGN.every((level, i) => i === 0
+      || LEGACY_CAMPAIGN[i - 1].elements.every((element) => level.elements.includes(element))));
 
   const world = createWorld(TUTOR);
   const player = world.player;
@@ -2369,7 +2370,7 @@ function простороту(world, at, шагов) {
 /* --- Вырубание: несмертельная одиночная стихия --- */
 {
   засеять(20260901);
-  const HALL2 = CAMPAIGN[0];
+  const HALL2 = TUTOR;
 
   /* Просыпается сам, и просыпается настороже, а не как ни в чём не бывало. */
   {
@@ -2494,7 +2495,7 @@ function простороту(world, at, шагов) {
    * одном окне, и добила не искра игрока, а разряд по луже.
    */
   {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(TUTOR);
     let barrel = -1;
     for (let i = 0; i < world.tiles.length && barrel < 0; i += 1) {
       if (world.tiles[i] !== TILE.BARREL) continue;
@@ -2528,7 +2529,7 @@ function простороту(world, at, шагов) {
    * паузой после каждого выстрела.
    */
   {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(TUTOR);
     const enemy = world.enemies.find((e) => e.alive);
     for (const other of world.enemies) if (other !== enemy) other.alive = false;
     world.player.x = enemy.x;
@@ -2543,7 +2544,7 @@ function простороту(world, at, шагов) {
    * не событие. Замедление про живых.
    */
   {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(TUTOR);
     for (const enemy of world.enemies) enemy.alive = false;
     const события = собрать(world, 180, () => cast(world, ['fire'], 0));
     check('ломать обстановку можно молча',
@@ -2557,7 +2558,7 @@ function простороту(world, at, шагов) {
    * настоящим часам.
    */
   {
-    const world = createWorld(CAMPAIGN[0]);
+    const world = createWorld(TUTOR);
     world.slow = 0.55;
     let кадров = 0;
     while (world.slow > 0 && кадров < 600) { update(world, DT, idle); кадров += 1; }

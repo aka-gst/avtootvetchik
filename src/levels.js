@@ -28,6 +28,7 @@
 
 import { fromAscii } from './level.js';
 import { SYSTEMIC_ROOM } from './systemic-room.js';
+import { EVGENY_SANDBOX } from './evgeny-sandbox.js';
 
 const FLOORS = [
   {
@@ -223,7 +224,7 @@ const FLOORS = [
   },
 ];
 
-export const CAMPAIGN = [...FLOORS.map((floor) => {
+export const CAMPAIGN = [EVGENY_SANDBOX, ...FLOORS.map((floor) => {
   const level = fromAscii(floor.rows, floor);
   level.title = floor.title;
   level.call = floor.call;

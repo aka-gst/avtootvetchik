@@ -124,6 +124,7 @@ export const TILE = {
    */
   FORCE: 13,      /* под напряжением: не пройти, не прострелить */
   FORCE_OFF: 14,  /* обесточена: пустое место */     /* стог соломы: сквозь него не видно, и он горит */
+  WOOD: 15,       /* настоящая деревянная створка: держит проход и горит */
 };
 
 /*
@@ -155,6 +156,7 @@ export const TILE_WEAKNESS = {
    */
   [TILE.TABLE]: ['burn', 'crush'],
   [TILE.DOOR]: ['burn', 'crush'],
+  [TILE.WOOD]: ['burn', 'crush'],
 
   /* Стекло не горит и не давится — оно бьётся от резкого: разряда,
      удара и песка. Стояло в игре с самого начала и не ломалось ничем. */
@@ -207,6 +209,7 @@ const CHAR_TILE = {
   'E': TILE.PANEL,
   'M': TILE.METAL,
   'F': TILE.FORCE,
+  'W': TILE.WOOD,
 };
 
 const CHAR_ENTITY = {
@@ -226,7 +229,7 @@ const CHAR_ENTITY = {
 };
 
 export function blocksMove(tile) {
-  return tile === TILE.WALL || tile === TILE.GLASS || tile === TILE.TABLE
+  return tile === TILE.WALL || tile === TILE.WOOD || tile === TILE.GLASS || tile === TILE.TABLE
     || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL
     || tile === TILE.METAL || tile === TILE.FORCE;
 }
@@ -240,13 +243,13 @@ export function blocksMove(tile) {
    Это и есть её обещание: видишь, куда идти, и не можешь. */
 export function blocksSight(tile) {
   return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.BOULDER
-    || tile === TILE.HAY || tile === TILE.METAL;
+    || tile === TILE.HAY || tile === TILE.METAL || tile === TILE.WOOD;
 }
 
 export function blocksShot(tile) {
   return tile === TILE.WALL || tile === TILE.DOOR || tile === TILE.TABLE
     || tile === TILE.BARREL || tile === TILE.BOULDER || tile === TILE.CRYSTAL
-    || tile === TILE.METAL || tile === TILE.FORCE
+    || tile === TILE.METAL || tile === TILE.FORCE || tile === TILE.WOOD
     /* Щиток — коробка на стене, и снаряд в неё попадает. Без этой строки
        он пролетал насквозь, а замыкание срабатывало случайно: от брызг
        вещества, легшего на стену позади. То есть попасть в него нарочно
