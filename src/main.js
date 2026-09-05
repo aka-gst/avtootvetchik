@@ -21,7 +21,7 @@ import { loadBook, noteSpell, noteObservation, bookPages, bookCount, elementMark
 import { iconTag } from './icons.js';
 import { pulse } from './pulse.js';
 import { createTrace, traceEvent, traceKey, traceDelivery } from './trace.js';
-import { createShowcase, withSeed } from './showcase.js';
+import { createEpisodeShowcase, createShowcase, withSeed } from './showcase.js';
 import { loadArt } from './art.js';
 import { operationResult } from './operation.js';
 import { physicalHint } from './observations.js';
@@ -1598,7 +1598,14 @@ window.technomagic = {
       resize();
     }
 
-    const made = withSeed(seed, () => createShowcase(CAMPAIGN[0], renderer));
+    const made = withSeed(seed, () => (
+      options.episode
+        ? createEpisodeShowcase(CAMPAIGN[0], renderer, {
+          width: options.width || window.innerWidth,
+          height: options.height || window.innerHeight,
+        })
+        : createShowcase(CAMPAIGN[0], renderer)
+    ));
 
     document.body.classList.add('is-shooting');
 

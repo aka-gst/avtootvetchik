@@ -179,6 +179,98 @@ export function createShowcase(level, renderer, hooks = {}) {
   return { world, view, step, render, state, hooks };
 }
 
+/*
+ * СЦЕНА ЦЕЛЬНОГО ЭПИЗОДА
+ * ---------------------------------------------------------
+ * Ничего не переставляет и не выдаёт результат руками. Игрок обычным
+ * вводом проходит две клетки, заряжает огонь и стреляет в настоящий
+ * стартовый стог; ближайший настоящий охранник приходит на шум. Сцена
+ * замирает на последствии, пока охранник ещё жив и горит.
+ */
+export function createEpisodeShowcase(level, renderer, frame = {}) {
+  const world = createWorld(level);
+  const startX = world.player.x;
+  const startY = world.player.y;
+
+  let hayAt = -1;
+  let hayGap = Infinity;
+  for (let i = 0; i < world.tiles.length; i += 1) {
+    if (world.tiles[i] !== TILE.HAY) continue;
+    const x = (i % world.w + 0.5) * TILE_SIZE;
+    const y = (Math.floor(i / world.w) + 0.5) * TILE_SIZE;
+    const gap = Math.hypot(x - startX, y - startY);
+    if (gap >= hayGap) continue;
+    hayGap = gap;
+    hayAt = i;
+  }
+  if (hayAt < 0) throw new Error('в операции нет стартового стога');
+
+  const hayX = (hayAt % world.w + 0.5) * TILE_SIZE;
+  const hayY = (Math.floor(hayAt / world.w) + 0.5) * TILE_SIZE;
+  const guard = world.enemies.reduce((nearest, enemy) => (
+    Math.hypot(enemy.x - hayX, enemy.y - hayY)
+      < Math.hypot(nearest.x - hayX, nearest.y - hayY) ? enemy : nearest
+  ), world.enemies[0]);
+  if (!guard) throw new Error('у стартового стога нет охранника');
+
+  world.zoomOverride = frame.width && frame.height && frame.width < frame.height
+    ? 2.1
+    : 3.4;
+  const view = {
+    x: (startX + guard.x) / 2,
+    y: (startY + hayY) / 2,
+  };
+  const idle = { moveX: 0, moveY: 0, aimAngle: 0, attack: false, charge: null };
+  let approachFrames = 0;
+  let charging = false;
+  let fired = false;
+  let observed = false;
+  let elapsed = 0;
+
+  function step(dt) {
+    if (observed) return;
+    elapsed += dt;
+
+    const aimAngle = Math.atan2(hayY - world.player.y, hayX - world.player.x);
+    if (approachFrames < 20) {
+      approachFrames += 1;
+      update(world, dt, { ...idle, moveX: 1, aimAngle });
+    } else if (!charging) {
+      charging = true;
+      update(world, dt, { ...idle, aimAngle, charge: 'fire' });
+    } else if (world.player.chargeLeft > 0) {
+      update(world, dt, { ...idle, aimAngle });
+    } else if (!fired) {
+      fired = true;
+      update(world, dt, { ...idle, aimAngle, attack: true });
+    } else {
+      update(world, dt, { ...idle, aimAngle });
+    }
+
+    observed ||= world.events.some((event) => event.type === 'world-observation'
+      && event.id === 'noise-fire');
+  }
+
+  function render() {
+    renderer.draw(world, view);
+  }
+
+  function state() {
+    return {
+      секунд: elapsed,
+      этап: observed ? 'наблюдение' : fired ? 'ловушка' : charging ? 'заряд' : 'подход',
+      стогСгорел: world.tiles[hayAt] === TILE.FLOOR,
+      охранникЖив: guard.alive,
+      охранникГорит: (guard.burning || 0) > 0,
+      наблюдение: observed,
+      игрокЖив: world.player.alive,
+      тревог: world.operation?.alerts || 0,
+    };
+  }
+
+  return { world, view, step, render, state };
+}
+
 /* Сид держится ровно на время съёмки и возвращается назад: подменять
    случайность у всей страницы навсегда — способ получить необъяснимые
    отчёты через час. */
