@@ -32,4 +32,4 @@ if __name__ == '__main__':
     root = sys.argv[2] if len(sys.argv) > 2 else os.path.dirname(os.path.abspath(__file__))
     handler = functools.partial(NoCache, directory=root)
     print(f'отдаётся {root}')
-    http.server.test(HandlerClass=handler, port=port, bind='0.0.0.0')
+    http.server.test(HandlerClass=handler, port=port, bind='127.0.0.1')
